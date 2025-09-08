@@ -1,5 +1,5 @@
 import { getIronSession, type SessionOptions, type IronSession } from "iron-session";
-import { cookies as getCookies } from "next/headers";
+import { cookies as getCookies, type ResponseCookie } from "next/headers";
 
 export type AdminUser = {
   id: string;
@@ -34,16 +34,38 @@ const sessionOptions: SessionOptions = {
 };
 
 /**
- * Get (or create) the admin session using Next.js App Router cookies().
- * Next 15 note: cookies() is async and returns a *readonly* store; iron-session
- * expects a mutable store. We await it and cast to the expected type.
+ * Minimal writable adapter that satisfies iron-session's CookieStore expectations.
+ * In RSC (read-only cookies), 'set' will exist only at runtime in route handlers;
+ * DO NOT call session.save() in RSC contexts.
+ */
+type WritableCookieStore = {
+  get: (name: string) => any;
+  set:
+    | ((name: string, value: string, cookie?: Partial<ResponseCookie>) => void)
+    | ((options: ResponseCookie) => void);
+};
+
+/**
+ * Get (or create) the admin session.
+ *
+ * - In Route Handlers: safe to read & write (session.save()).
+ * - In RSC/Server Components: safe to read only; DON'T call session.save().
  */
 export async function getAdminSession(): Promise<AdminSession> {
-  const cookieStore = await getCookies(); // Promise<ReadonlyRequestCookies> in Next 15
-  // Cast to the writable CookieStore that iron-session expects
+  // Next 15: cookies() is async and may return a read-only store in RSC.
+  const raw = await getCookies();
+
+  // Create a typed adapter; in route handlers, raw.set exists (writable).
+  // In RSC, raw.set is undefined — reading the session is fine, but saving isn't.
+  const store: WritableCookieStore = {
+    get: (name: string) => (raw as any).get?.(name),
+    set: (...args: any[]) => (raw as any).set?.(...args),
+  };
+
   const session = await getIronSession<{ user?: AdminUser }>(
-    cookieStore as unknown as { get: (name: string) => any; set: (name: string, value: any) => void },
+    store as unknown as WritableCookieStore,
     sessionOptions
   );
+
   return session as AdminSession;
 }
