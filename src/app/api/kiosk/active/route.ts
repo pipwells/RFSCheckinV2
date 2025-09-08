@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/db";             // ✅ alias @/ -> ./src
-import { kioskAuth } from "@/lib/kioskAuth";
+import { prisma } from "@/lib/db";            // ← named import per Turbopack hint
+import { requireKiosk } from "@/lib/kioskAuth"; // ← named import per Turbopack hint
 
 type Device = {
   id: string;
@@ -20,14 +20,15 @@ function isDevice(x: unknown): x is Device {
 }
 
 export async function GET(req: NextRequest) {
-  const device = await kioskAuth(req);
+  // Your auth helper appears to return either a Response (on failure) or a device-like object.
+  const device = await requireKiosk(req);
 
-  // If kioskAuth returned a Response (e.g. 401), forward it
+  // If the helper returned a Response (e.g., 401/403), forward it as-is.
   if (device instanceof Response) {
     return device;
   }
 
-  // Defensive: ensure we have the device shape
+  // Defensive: ensure we have the expected shape
   if (!isDevice(device)) {
     return NextResponse.json({ error: "Invalid device context" }, { status: 400 });
   }
