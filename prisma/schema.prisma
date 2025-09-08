@@ -1,0 +1,267 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL") // default: file:./dev.db
+}
+
+model Organisation {
+  id         String         @id @default(cuid())
+  name       String
+  timezone   String         @default("Australia/Sydney")
+  active     Boolean        @default(true)
+  stations   Station[]
+  members    Member[]
+  categories Category[]
+  users      User[]
+  devices    Device[]
+  auditLogs  AuditLog[]
+  notices    Notification[]
+  configs    Config[]
+  kioskInvites KioskInvite[]
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+}
+
+model Station {
+  id             String              @id @default(cuid())
+  organisationId String
+  name           String
+  code           String
+  active         Boolean             @default(true)
+  organisation   Organisation        @relation(fields: [organisationId], references: [id])
+  devices        Device[]
+  sessions       Session[]
+  userAccesses   UserStationAccess[]
+  kioskInvites   KioskInvite[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([organisationId, code])
+}
+
+model Device {
+  id             String       @id @default(cuid())
+  organisationId String
+  stationId      String
+  name           String
+  kioskKey       String       @unique
+  active         Boolean      @default(true)
+  lastSeenAt     DateTime?
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  station        Station      @relation(fields: [stationId], references: [id])
+  sessions       Session[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model Member {
+  id               String       @id @default(cuid())
+  organisationId   String
+  firstName        String
+  lastName         String
+  mobile           String? // as entered
+  mobileNormalized String? // canonical "04xxxxxxxx"
+  isVisitor        Boolean      @default(false)
+  status           String       @default("active")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  Organisation     Organisation @relation(fields: [organisationId], references: [id])
+  Token            Token[]
+  Session          Session[]
+
+  @@index([organisationId, mobileNormalized])
+  @@index([organisationId, isVisitor])
+}
+
+enum MemberType {
+  member
+  visitor
+}
+
+model Token {
+  id        String    @id @default(cuid())
+  memberId  String
+  type      TokenType
+  valueHash String
+  last4     String
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  member    Member    @relation(fields: [memberId], references: [id])
+
+  @@index([valueHash])
+}
+
+enum TokenType {
+  mobile
+  rfid
+  pin
+}
+
+model Session {
+  id             String        @id @default(cuid())
+  memberId       String
+  organisationId String
+  stationId      String
+  deviceId       String?
+  startTime      DateTime
+  endTime        DateTime?
+  duration       Int? // minutes (derived)
+  rawCheckinAt   DateTime
+  rawCheckoutAt  DateTime?
+  editLevel      EditLevel     @default(none) // none | self | admin
+  editedById     String?
+  status         SessionStatus @default(open)
+  tasks          SessionTask[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  visitorAgency  String?
+  visitorPurpose String?
+
+  member  Member  @relation(fields: [memberId], references: [id])
+  station Station @relation(fields: [stationId], references: [id])
+  device  Device? @relation(fields: [deviceId], references: [id])
+
+  @@index([memberId, status])
+  @@index([organisationId, stationId])
+}
+
+enum EditLevel {
+  none
+  self
+  admin
+}
+
+enum SessionStatus {
+  open
+  closed
+  corrected
+}
+
+model Category {
+  id             String        @id @default(cuid())
+  organisationId String
+  parentId       String?
+  name           String
+  code           String        // immutable once used in activity
+  active         Boolean       @default(true)
+  sort           Int           @default(0)
+
+  organisation   Organisation  @relation(fields: [organisationId], references: [id])
+  parent         Category?     @relation("CategoryToCategory", fields: [parentId], references: [id])
+  children       Category[]    @relation("CategoryToCategory")
+
+  tasks          SessionTask[]
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([organisationId, parentId, sort])
+  @@unique([organisationId, code]) // code unique per org
+}
+
+model SessionTask {
+  id         String   @id @default(cuid())
+  sessionId  String
+  categoryId String
+
+  // duration etc.
+  minutes    Int
+  notes      String?
+
+  // snapshots for reporting longevity (do not change once written)
+  categoryCodeSnapshot String  @default("")
+  categoryNameSnapshot String  @default("")
+
+  session    Session  @relation(fields: [sessionId], references: [id])
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  @@index([sessionId])
+}
+model User {
+  id              String              @id @default(cuid())
+  organisationId  String
+  email           String              @unique
+  name            String
+  role            UserRole            @default(org_admin)
+  organisation    Organisation        @relation(fields: [organisationId], references: [id])
+  stationAccesses UserStationAccess[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+}
+
+enum UserRole {
+  org_admin
+  station_admin
+  super_admin
+}
+
+// Pivot table: which stations an admin can access
+model UserStationAccess {
+  id        String  @id @default(cuid())
+  userId    String
+  stationId String
+  user      User    @relation(fields: [userId], references: [id])
+  station   Station @relation(fields: [stationId], references: [id])
+
+  @@unique([userId, stationId])
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  organisationId String
+  actorType      String
+  actorId        String?
+  action         String
+  entity         String
+  entityId       String
+  before         Json?
+  after          Json?
+  createdAt      DateTime     @default(now())
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+}
+
+model Notification {
+  id             String       @id @default(cuid())
+  organisationId String
+  memberId       String?
+  sessionId      String?
+  channel        String // "sms"
+  template       String // "signout_reminder"
+  status         String // "queued" | "sent" | "failed"
+  sentAt         DateTime?
+  meta           Json?
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+}
+
+model Config {
+  id             String       @id @default(cuid())
+  organisationId String
+  key            String
+  value          Json
+  organisation   Organisation @relation(fields: [organisationId], references: [id])
+
+  @@unique([organisationId, key])
+}
+
+model KioskInvite {
+  id              String       @id @default(cuid())
+  organisationId  String
+  stationId       String
+  passphraseHash  String
+  phraseDisplay   String
+  expiresAt       DateTime
+  used            Boolean      @default(false)
+  usedAt          DateTime?
+  createdBy       String?
+  createdAt       DateTime     @default(now())
+
+  organisation    Organisation @relation(fields: [organisationId], references: [id])
+  station         Station      @relation(fields: [stationId], references: [id])
+
+  @@index([organisationId, stationId, used])
+  @@index([expiresAt])
+}
