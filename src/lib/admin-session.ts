@@ -6,6 +6,7 @@ export type AdminUser = {
   email: string;
   name?: string | null;
   role?: "owner" | "admin" | "staff";
+  organisationId?: string; // ✅ add this so session.user.organisationId is typed
 };
 
 // The IronSession generic describes the shape stored in the session.
@@ -27,11 +28,10 @@ const sessionOptions: SessionOptions = {
  * Get (or create) the admin session using Next.js App Router cookies().
  * Usage (server only):
  *   const session = await getAdminSession();
- *   session.user = {...};
+ *   session.user = {...}; // ensure you set organisationId when you sign in
  *   await session.save();
  */
 export async function getAdminSession(): Promise<AdminSession> {
-  // App Router: pass cookies() directly to iron-session
   const session = await getIronSession<{ user?: AdminUser }>(cookies(), sessionOptions);
   return session;
 }
