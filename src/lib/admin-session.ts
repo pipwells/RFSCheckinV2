@@ -1,6 +1,5 @@
-// src/lib/admin-session.ts
 import { getIronSession, type SessionOptions, type IronSession } from "iron-session";
-import { cookies } from "next/headers";
+import { cookies as getCookies } from "next/headers";
 
 export type AdminUser = {
   id: string;
@@ -36,12 +35,15 @@ const sessionOptions: SessionOptions = {
 
 /**
  * Get (or create) the admin session using Next.js App Router cookies().
- * Usage (server only):
- *   const session = await getAdminSession();
- *   session.user = {...};
- *   await session.save();
+ * Next 15 note: cookies() is async and returns a *readonly* store; iron-session
+ * expects a mutable store. We await it and cast to the expected type.
  */
 export async function getAdminSession(): Promise<AdminSession> {
-  const session = await getIronSession<{ user?: AdminUser }>(cookies(), sessionOptions);
-  return session;
+  const cookieStore = await getCookies(); // Promise<ReadonlyRequestCookies> in Next 15
+  // Cast to the writable CookieStore that iron-session expects
+  const session = await getIronSession<{ user?: AdminUser }>(
+    cookieStore as unknown as { get: (name: string) => any; set: (name: string, value: any) => void },
+    sessionOptions
+  );
+  return session as AdminSession;
 }
