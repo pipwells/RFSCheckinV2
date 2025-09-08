@@ -1,45 +1,46 @@
-// src/app/api/kiosk/active/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
-import { requireKiosk } from '@/lib/kioskAuth';
+import { NextRequest, NextResponse } from "next/server";
+import prisma from "@/src/lib/db"; // ⬅️ adjust path if your prisma client lives elsewhere
+import { kioskAuth } from "@/src/lib/kioskAuth"; // ⬅️ adjust to where you actually import from
+
+type Device = {
+  id: string;
+  organisationId: string;
+  stationId: string;
+};
+
+/** Type guard to ensure object is a Device */
+function isDevice(x: unknown): x is Device {
+  return !!x && typeof x === "object"
+    && "organisationId" in x
+    && "stationId" in x
+    && "id" in x;
+}
 
 export async function GET(req: NextRequest) {
-  try {
-    const device = await requireKiosk(req);
+  // Resolve device from your existing auth helper
+  const device = await kioskAuth(req);
 
-    // Fetch all open sessions for this kiosk’s station
-    const rows = await prisma.session.findMany({
-      where: {
-        organisationId: device.organisationId,
-        stationId: device.stationId,
-        status: 'open',
-      },
-      select: {
-        id: true,
-        startTime: true,
-        member: {
-          select: {
-            firstName: true,
-            lastName: true,
-            isVisitor: true,
-          },
-        },
-      },
-      orderBy: { startTime: 'asc' },
-    });
-
-    const active = rows.map((r) => ({
-      sessionId: r.id,
-      startTime: r.startTime.toISOString(),
-      firstName: r.member?.firstName ?? null,
-      lastName: r.member?.lastName ?? null,
-      isVisitor: Boolean(r.member?.isVisitor),
-    }));
-
-    return NextResponse.json({ active });
-  } catch (err) {
-    if (err instanceof Response) return err; // thrown by requireKiosk
-    console.error(err);
-    return NextResponse.json({ error: 'server_error' }, { status: 500 });
+  // If kioskAuth returned a Response (auth failure, etc.), just return it
+  if (device instanceof Response) {
+    return device;
   }
+
+  // Defensive: check that it looks like a Device object
+  if (!isDevice(device)) {
+    return NextResponse.json({ error: "Invalid device context" }, { status: 400 });
+  }
+
+  const { organisationId, stationId } = device;
+
+  // Query open sessions for this org/station
+  const rows = await prisma.session.findMany({
+    where: {
+      organisationId,
+      stationId,
+      status: "open",
+    },
+    orderBy: { startedAt: "desc" },
+  });
+
+  return NextResponse.json(rows);
 }
