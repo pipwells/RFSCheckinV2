@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";            // ← named import per Turbopack hint
-import { requireKiosk } from "@/lib/kioskAuth"; // ← named import per Turbopack hint
+import { prisma } from "@/lib/db";
+import { requireKiosk } from "@/lib/kioskAuth";
 
 type Device = {
   id: string;
@@ -20,10 +20,9 @@ function isDevice(x: unknown): x is Device {
 }
 
 export async function GET(req: NextRequest) {
-  // Your auth helper appears to return either a Response (on failure) or a device-like object.
   const device = await requireKiosk(req);
 
-  // If the helper returned a Response (e.g., 401/403), forward it as-is.
+  // If the helper returned a Response (e.g., 401), forward it
   if (device instanceof Response) {
     return device;
   }
@@ -35,13 +34,15 @@ export async function GET(req: NextRequest) {
 
   const { organisationId, stationId } = device;
 
+  // Query open sessions for this org/station
   const rows = await prisma.session.findMany({
     where: {
       organisationId,
       stationId,
       status: "open",
     },
-    orderBy: { startedAt: "desc" },
+    // If your Session model has a timestamp like `createdAt`, you can sort:
+    // orderBy: { createdAt: "desc" },
   });
 
   return NextResponse.json(rows);
