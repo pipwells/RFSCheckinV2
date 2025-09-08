@@ -1,23 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { getAdminSession } from "@/lib/admin-session";
 
-type Params = { id: string };
+export const dynamic = "force-dynamic";
 
-/**
- * DELETE /api/admin/kiosks/device/[id]
- * Next.js 15 route handler signature: await context.params
- */
 export async function DELETE(
-  _req: NextRequest,
-  context: { params: Promise<Params> }
-) {
-  const { id } = await context.params;
+  request: NextRequest,
+  context: { params: { id: string } }
+): Promise<Response> {
+  const session = await getAdminSession();
+  if (!session.user) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
 
-  // ─── PASTE YOUR EXISTING DELETE LOGIC BELOW ─────────────────────────────
-  // Example:
-  // await prisma.kioskDevice.delete({ where: { id } });
-  // return NextResponse.json({ ok: true });
-  // ────────────────────────────────────────────────────────────────────────
+  const { id } = context.params;
+  const device = await prisma.device.findUnique({ where: { id } });
+  if (!device) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
 
-  // TEMP placeholder so the build passes; replace with your real logic.
-  return NextResponse.json({ ok: true, id });
+  await prisma.device.update({
+    where: { id },
+    data: { active: false },
+  });
+
+  return NextResponse.json({ ok: true });
 }
