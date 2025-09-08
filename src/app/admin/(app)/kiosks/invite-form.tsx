@@ -1,70 +1,72 @@
 "use client";
 
 import { useState } from "react";
-import type { StationLite } from "./page";
+import type { StationLite } from "./types";
 
 export default function NewInviteForm({ stations }: { stations: StationLite[] }) {
   const [stationId, setStationId] = useState(stations[0]?.id ?? "");
-  const [days, setDays] = useState(7);
-  const [result, setResult] = useState<{ display?: string; error?: string } | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setLoading(true);
-    setResult(null);
-    const res = await fetch("/api/admin/kiosks/invite", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stationId, expiresDays: days }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setLoading(false);
-    if (!res.ok) {
-      setResult({ error: data?.error || "Failed to create invite" });
-      return;
+    setSubmitting(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const res = await fetch("/api/admin/kiosks/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stationId }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || `Request failed with ${res.status}`);
+      }
+
+      const body = await res.json().catch(() => ({}));
+      setSuccess(body?.message ?? "Invite created.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      setSubmitting(false);
     }
-    setResult({ display: data.display });
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-3">
-      <label className="block text-sm">Station</label>
-      <select
-        className="border rounded-lg px-3 py-2 w-full"
-        value={stationId}
-        onChange={(e) => setStationId(e.target.value)}
+    <form onSubmit={onSubmit} className="space-y-4">
+      <div className="space-y-1">
+        <label htmlFor="stationId" className="block text-sm font-medium">
+          Station
+        </label>
+        <select
+          id="stationId"
+          name="stationId"
+          value={stationId}
+          onChange={(e) => setStationId(e.target.value)}
+          className="w-full rounded-md border px-3 py-2"
+        >
+          {stations.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <button
+        type="submit"
+        disabled={submitting || !stationId}
+        className="rounded-md bg-black px-4 py-2 text-white disabled:opacity-60"
       >
-        {stations.map(s => (
-          <option key={s.id} value={s.id}>{s.name} ({s.code})</option>
-        ))}
-      </select>
-
-      <label className="block text-sm mt-2">Expires (days)</label>
-      <input
-        type="number"
-        min={1}
-        max={30}
-        className="border rounded-lg px-3 py-2 w-32"
-        value={days}
-        onChange={(e) => setDays(Number(e.target.value))}
-      />
-
-      <button className="rounded-lg px-4 py-2 bg-black text-white">
-        {loading ? "Creating…" : "Create invite"}
+        {submitting ? "Creating…" : "Create Invite"}
       </button>
 
-      {result?.display && (
-        <div className="mt-3 rounded-lg border p-3 bg-gray-50">
-          <div className="text-sm text-gray-600">Passphrase (share with kiosk):</div>
-          <div className="font-mono text-lg">{result.display}</div>
-          <div className="text-xs text-gray-500 mt-1">Use at /register-kiosk</div>
-        </div>
-      )}
-      {result?.error && (
-        <div className="mt-3 text-sm text-red-600">{result.error}</div>
-      )}
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      {success && <p className="text-sm text-green-700">{success}</p>}
     </form>
   );
 }
-
