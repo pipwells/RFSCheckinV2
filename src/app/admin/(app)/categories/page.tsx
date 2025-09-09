@@ -1,5 +1,6 @@
 import { getAdminSession } from "@/lib/admin-session";
 import { prisma } from "@/lib/db";
+import type { Category } from "@prisma/client";
 
 type CategoryLite = {
   id: string;
@@ -9,19 +10,22 @@ type CategoryLite = {
   children?: CategoryLite[];
 };
 
+// Helper type for the Prisma result when including children
+type CategoryWithChildren = Category & { children: Category[] };
+
 async function getData(orgId: string): Promise<CategoryLite[]> {
-  const cats = await prisma.category.findMany({
+  const cats: CategoryWithChildren[] = await prisma.category.findMany({
     where: { organisationId: orgId, parentId: null },
     include: { children: true },
     orderBy: { code: "asc" },
   });
 
-  return cats.map((c) => ({
+  return cats.map((c: CategoryWithChildren) => ({
     id: c.id,
     code: c.code,
     name: c.name,
     active: c.active,
-    children: c.children.map((ch) => ({
+    children: c.children.map((ch: Category) => ({
       id: ch.id,
       code: ch.code,
       name: ch.name,
