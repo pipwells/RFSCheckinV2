@@ -1,16 +1,21 @@
 import { PrismaClient } from "@prisma/client";
 
 /**
- * Singleton Prisma for Next.js (works with Turbopack/Vercel):
- *  - Reuse a single instance across hot reloads (dev) via globalThis.
- *  - Avoids “Too many clients”.
- *  - No `$use` middleware; we use `$extends` query extensions instead.
+ * Singleton Prisma for Next.js (Turbopack/Vercel friendly).
+ * We cache BOTH the core PrismaClient and the extended client to avoid
+ * rebuilding the extension on every import and to keep types happy.
  */
-const globalForPrisma = globalThis as unknown as {
-  __prisma?: PrismaClient;
+
+// Keep cache types loose to avoid Prisma's complex generic mismatch.
+type GlobalPrismaCache = {
+  __prisma_core__?: PrismaClient;
+  __prisma_ext__?: any; // extended client type (from $extends)
 };
 
-const base = globalForPrisma.__prisma ?? new PrismaClient();
+const globalForPrisma = globalThis as unknown as GlobalPrismaCache;
+
+// 1) Core client: create once, reuse everywhere
+const core: PrismaClient = globalForPrisma.__prisma_core__ ?? new PrismaClient();
 
 /** Lightweight AU-friendly mobile normalizer */
 function normalizeMobile(raw: unknown): string | undefined {
@@ -22,67 +27,70 @@ function normalizeMobile(raw: unknown): string | undefined {
   return digits;
 }
 
-/**
- * Use Prisma query extensions to normalize `Member.mobileNormalized`
- * on create/update/upsert without relying on `$use`.
- */
-export const prisma = base.$extends({
-  query: {
-    member: {
-      async create({ args, query }) {
-        if (args?.data) {
-          const data: any = args.data;
-          if ("mobile" in data) {
-            const n = normalizeMobile(data.mobile);
-            if (n) data.mobileNormalized = n;
-          } else if ("mobileNormalized" in data) {
-            const n = normalizeMobile(data.mobileNormalized);
-            if (n) data.mobileNormalized = n;
+// 2) Extended client: add query hooks for Member mutations
+const extended =
+  globalForPrisma.__prisma_ext__ ??
+  core.$extends({
+    query: {
+      member: {
+        async create({ args, query }) {
+          if (args?.data) {
+            const data: any = args.data;
+            if ("mobile" in data) {
+              const n = normalizeMobile(data.mobile);
+              if (n) data.mobileNormalized = n;
+            } else if ("mobileNormalized" in data) {
+              const n = normalizeMobile(data.mobileNormalized);
+              if (n) data.mobileNormalized = n;
+            }
           }
-        }
-        return query(args);
-      },
-      async update({ args, query }) {
-        if (args?.data) {
-          const data: any = args.data;
-          if ("mobile" in data) {
-            const n = normalizeMobile(data.mobile);
-            if (n) data.mobileNormalized = n;
-          } else if ("mobileNormalized" in data) {
-            const n = normalizeMobile(data.mobileNormalized);
-            if (n) data.mobileNormalized = n;
+          return query(args);
+        },
+        async update({ args, query }) {
+          if (args?.data) {
+            const data: any = args.data;
+            if ("mobile" in data) {
+              const n = normalizeMobile(data.mobile);
+              if (n) data.mobileNormalized = n;
+            } else if ("mobileNormalized" in data) {
+              const n = normalizeMobile(data.mobileNormalized);
+              if (n) data.mobileNormalized = n;
+            }
           }
-        }
-        return query(args);
-      },
-      async upsert({ args, query }) {
-        if (args?.create) {
-          const c: any = args.create;
-          if ("mobile" in c) {
-            const n = normalizeMobile(c.mobile);
-            if (n) c.mobileNormalized = n;
-          } else if ("mobileNormalized" in c) {
-            const n = normalizeMobile(c.mobileNormalized);
-            if (n) c.mobileNormalized = n;
+          return query(args);
+        },
+        async upsert({ args, query }) {
+          if (args?.create) {
+            const c: any = args.create;
+            if ("mobile" in c) {
+              const n = normalizeMobile(c.mobile);
+              if (n) c.mobileNormalized = n;
+            } else if ("mobileNormalized" in c) {
+              const n = normalizeMobile(c.mobileNormalized);
+              if (n) c.mobileNormalized = n;
+            }
           }
-        }
-        if (args?.update) {
-          const u: any = args.update;
-          if ("mobile" in u) {
-            const n = normalizeMobile(u.mobile);
-            if (n) u.mobileNormalized = n;
-          } else if ("mobileNormalized" in u) {
-            const n = normalizeMobile(u.mobileNormalized);
-            if (n) u.mobileNormalized = n;
+          if (args?.update) {
+            const u: any = args.update;
+            if ("mobile" in u) {
+              const n = normalizeMobile(u.mobile);
+              if (n) u.mobileNormalized = n;
+            } else if ("mobileNormalized" in u) {
+              const n = normalizeMobile(u.mobileNormalized);
+              if (n) u.mobileNormalized = n;
+            }
           }
-        }
-        return query(args);
+          return query(args);
+        },
       },
     },
-  },
-});
+  });
 
-// Cache the instance in dev so it’s reused across HMR
+// 3) Export the extended client everywhere
+export const prisma = extended;
+
+// 4) Cache both in dev so HMR reuses them
 if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.__prisma = prisma;
+  globalForPrisma.__prisma_core__ = core;
+  globalForPrisma.__prisma_ext__ = extended;
 }
