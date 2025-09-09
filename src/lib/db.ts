@@ -1,5 +1,10 @@
 // src/lib/db.ts
 import { PrismaClient } from '@prisma/client';
+import { mobileNormalizeMiddleware } from "./prisma-middleware";
+
+export const prisma = new PrismaClient();
+
+prisma.$use(mobileNormalizeMiddleware);
 
 declare global {
   // eslint-disable-next-line no-var
