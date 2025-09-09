@@ -5,6 +5,13 @@ import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
+type CategoryLite = {
+  id: string;
+  code: string;
+  name: string;
+  active: boolean;
+};
+
 async function getData(orgId: string) {
   const tops = await prisma.category.findMany({
     where: { organisationId: orgId, parentId: null },
@@ -37,7 +44,7 @@ export default async function CategoriesAdminPage() {
         <p className="text-xs text-gray-600 mt-2">Max 8 active top-level categories are shown on the kiosk.</p>
       </div>
 
-      {data.map((top, idx) => (
+      {data.map((top: CategoryLite, idx: number) => (
         <div key={top.id} className="rounded-xl ring-1 ring-gray-200 bg-white p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="font-semibold">{top.code} — {top.name} {top.active ? "" : <span className="text-gray-500">(inactive)</span>}</div>
