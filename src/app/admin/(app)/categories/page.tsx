@@ -1,5 +1,5 @@
 import { getAdminSession } from "@/lib/admin-session";
-import prisma from "@/lib/db";
+import { prisma } from "@/lib/db";
 
 type CategoryLite = {
   id: string;
@@ -12,9 +12,7 @@ type CategoryLite = {
 async function getData(orgId: string): Promise<CategoryLite[]> {
   const cats = await prisma.category.findMany({
     where: { organisationId: orgId, parentId: null },
-    include: {
-      children: true,
-    },
+    include: { children: true },
     orderBy: { code: "asc" },
   });
 
