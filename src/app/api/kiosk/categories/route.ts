@@ -1,50 +1,75 @@
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
+// src/app/api/kiosk/categories/route.ts
+import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
+import type { Category } from "@prisma/client";
 
-export async function GET() {
-  try {
-    // In Next 15, dynamic APIs like cookies() should be awaited
-    const cookieStore = await cookies();
-    const kioskKey = cookieStore.get("kiosk_key")?.value ?? null;
-    if (!kioskKey) return NextResponse.json({ categories: [] });
+/**
+ * Shape returned to the kiosk.
+ * Top-level categories will include a `children` array.
+ */
+type KioskCategory = {
+  id: string;
+  name: string;
+  code: string;
+  active: boolean;
+  parentId: string | null;
+  children: Array<{
+    id: string;
+    name: string;
+    code: string;
+    active: boolean;
+  }>;
+};
 
-    const device = await prisma.device.findUnique({
-      where: { kioskKey },
-      select: { organisationId: true },
-    });
-    if (!device) return NextResponse.json({ categories: [] });
+export async function GET(_req: NextRequest) {
+  // Pull all active categories; tweak filtering as needed for your kiosk/device/org
+  const cats: Category[] = await prisma.category.findMany({
+    where: { active: true },
+    orderBy: [{ code: "asc" }, { name: "asc" }],
+  });
 
-    // Pull top-level categories + children
-    const cats = await prisma.category.findMany({
-      where: { organisationId: device.organisationId, active: true, parentId: null },
-      orderBy: [{ sort: "asc" }, { name: "asc" }],
-      select: {
-        id: true,
-        name: true,
-        code: true,
-        children: {
-          where: { active: true },
-          orderBy: [{ sort: "asc" }, { name: "asc" }],
-          select: { id: true, name: true, code: true },
-        },
-      },
-    });
+  // Group children by parentId for quick lookup
+  const byParent = new Map<string | null, Category[]>();
+  for (const c of cats) {
+    const key = c.parentId ?? null;
+    const arr = byParent.get(key);
+    if (arr) arr.push(c);
+    else byParent.set(key, [c]);
+  }
+
+  // Build result: only include top-level categories as "parents"
+  const topLevel: Category[] = byParent.get(null) ?? [];
+
+  const shaped: KioskCategory[] = topLevel.map((top: Category) => {
+    const kids: Category[] = byParent.get(top.id) ?? [];
 
     // Ensure at least one child (self default) if none exist
-    const shaped = cats.map((c) => ({
-      id: c.id,
-      name: c.name,
-      code: c.code,
-      children:
-        c.children.length > 0
-          ? c.children.map((ch) => ({ id: ch.id, name: ch.name, code: ch.code }))
-          : [{ id: c.id, name: c.name, code: c.code }], // fallback
-    }));
+    const children =
+      kids.length > 0
+        ? kids.map((ch: Category) => ({
+            id: ch.id,
+            name: ch.name,
+            code: ch.code,
+            active: ch.active,
+          }))
+        : [
+            {
+              id: top.id,
+              name: top.name,
+              code: top.code,
+              active: top.active,
+            },
+          ];
 
-    return NextResponse.json({ categories: shaped });
-  } catch (e) {
-    console.error("kiosk categories error", e);
-    return NextResponse.json({ categories: [] });
-  }
+    return {
+      id: top.id,
+      name: top.name,
+      code: top.code,
+      active: top.active,
+      parentId: top.parentId,
+      children,
+    };
+  });
+
+  return NextResponse.json(shaped);
 }
