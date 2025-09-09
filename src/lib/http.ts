@@ -1,3 +1,9 @@
-// src/lib/http.ts
-export const ok = (data: any, init?: ResponseInit) => Response.json(data, init);
-export const bad = (msg: string, code = 400) => Response.json({ error: msg }, { status: code });
+// Small HTTP helpers for JSON responses
+
+export function ok<T>(data: T, init?: ResponseInit): Response {
+  return Response.json(data as any, init);
+}
+
+export function err(status: number, message: string, extra?: Record<string, unknown>): Response {
+  return Response.json({ error: message, ...(extra || {}) }, { status });
+}
