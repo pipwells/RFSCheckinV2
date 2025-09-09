@@ -1,58 +1,82 @@
-// src/app/admin/(app)/members/page.tsx
-import Link from "next/link";
-import { prisma } from "@/lib/db";
 import { getAdminSession } from "@/lib/admin-session";
-import MembersTable, { type MemberRow } from "./table";
+import { prisma } from "@/lib/db";
+import type { Member } from "@prisma/client";
 
-export const dynamic = "force-dynamic";
+type MemberRow = {
+  id: string;
+  name: string;
+  mobile: string;
+  role: string | null;
+  active: boolean;
+};
+
+async function getData(orgId: string): Promise<MemberRow[]> {
+  const members: Member[] = await prisma.member.findMany({
+    where: { organisationId: orgId },
+    orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+  });
+
+  const rows: MemberRow[] = members.map((m: Member) => ({
+    id: m.id,
+    name: `${m.firstName} ${m.lastName}`.trim(),
+    mobile: m.mobile ?? "",
+    role: (m as any).role ?? null, // if your schema has `role`; safe fallback otherwise
+    active: (m as any).active ?? true, // safe default if missing in schema
+  }));
+
+  return rows;
+}
 
 export default async function MembersAdminPage() {
   const session = await getAdminSession();
-  if (!session.user?.organisationId) {
-    // layout will redirect too, but guard anyway
-    return null;
-  }
-  const orgId = session.user.organisationId;
-
-  const members = await prisma.member.findMany({
-    where: { organisationId: orgId, isVisitor: false },
-    orderBy: [{ status: "asc" }, { lastName: "asc" }, { firstName: "asc" }],
-    select: { id: true, firstName: true, lastName: true, mobile: true, mobileNormalized: true, status: true, updatedAt: true },
-    take: 1000,
-  });
-
-  // Format dates on the server to avoid hydration mismatches
-  const fmt = new Intl.DateTimeFormat("en-AU", {
-    dateStyle: "short",
-    timeStyle: "short",
-    timeZone: "Australia/Sydney",
-    hour12: true,
-  });
-
-  const rows: MemberRow[] = members.map((m) => ({
-    id: m.id,
-    name: `${m.firstName} ${m.lastName}`,
-    mobile: m.mobile ?? "",
-    status: m.status,
-    updatedLabel: fmt.format(m.updatedAt),
-  }));
+  const orgId = session.user?.organisationId!;
+  const rows: MemberRow[] = await getData(orgId);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Members</h1>
-          <p className="text-gray-600">Add, edit, or disable members for your organisation.</p>
-        </div>
-        <Link
-          href="/admin/members/new"
-          className="rounded-lg px-4 py-2 bg-black text-white"
-        >
-          Add member
-        </Link>
-      </div>
+    <div className="space-y-4">
+      <h1 className="text-2xl font-bold">Members</h1>
 
-      <MembersTable rows={rows} />
+      <div className="rounded-xl ring-1 ring-gray-200 bg-white divide-y">
+        {rows.length === 0 ? (
+          <div className="p-4 text-gray-600">No members found.</div>
+        ) : (
+          rows.map((row: MemberRow) => (
+            <div
+              key={row.id}
+              className="p-4 grid grid-cols-1 sm:grid-cols-5 gap-2 sm:items-center"
+            >
+              <div className="sm:col-span-2">
+                <div className="font-semibold">{row.name || "—"}</div>
+                <div className="text-sm text-gray-600">
+                  {row.mobile ? `Mobile: ${row.mobile}` : "Mobile: —"}
+                </div>
+              </div>
+
+              <div className="text-sm text-gray-800">
+                Role: {row.role ?? "—"}
+              </div>
+
+              <div className="text-sm">
+                Status:{" "}
+                {row.active ? (
+                  <span className="text-green-700">Active</span>
+                ) : (
+                  <span className="text-gray-500">Inactive</span>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <button className="text-sm text-blue-600 hover:underline">
+                  Edit
+                </button>
+                <button className="text-sm text-red-600 hover:underline">
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
