@@ -1,16 +1,26 @@
-// src/lib/db.ts
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from "@prisma/client";
 import { mobileNormalizeMiddleware } from "./prisma-middleware";
 
-export const prisma = new PrismaClient();
+/**
+ * Singleton Prisma for Next.js:
+ *  - Reuse a single instance across hot reloads (dev) via globalThis.
+ *  - Avoids “Too many clients” and duplicate identifier issues.
+ */
+const globalForPrisma = globalThis as unknown as {
+  __prisma?: PrismaClient;
+  __prismaMwReg?: boolean;
+};
 
-prisma.$use(mobileNormalizeMiddleware);
+export const prisma: PrismaClient =
+  globalForPrisma.__prisma ?? new PrismaClient();
 
-declare global {
-  // eslint-disable-next-line no-var
-  var prisma: PrismaClient | undefined;
+// Register middleware exactly once (even across HMR)
+if (!globalForPrisma.__prismaMwReg) {
+  prisma.$use(mobileNormalizeMiddleware);
+  globalForPrisma.__prismaMwReg = true;
 }
 
-export const prisma = global.prisma ?? new PrismaClient();
-
-if (process.env.NODE_ENV !== 'production') global.prisma = prisma;
+// Cache the instance in dev so it’s reused
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.__prisma = prisma;
+}
