@@ -1,33 +1,31 @@
+// src/app/api/kiosk/register/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
 import crypto from "crypto";
+import { prisma } from "@/lib/db";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+function hashPassphrase(passphrase: string) {
+  const pepper = process.env.KIOSK_INVITE_PEPPER;
+  if (!pepper) {
+    throw new Error("KIOSK_INVITE_PEPPER is not set");
+  }
 
-function hashPhrase(phrase: string) {
-  const pepper = process.env.KIOSK_INVITE_PEPPER ?? "";
-  return crypto.createHash("sha256").update(`${pepper}:${phrase}`).digest("hex");
-}
-
-function makeKioskKey() {
-  // 32 bytes -> 64 hex chars
-  return crypto.randomBytes(32).toString("hex");
-}
-
-function cleanPhrase(s: string) {
-  return s.trim().toUpperCase().replace(/\s+/g, "");
+  return crypto
+    .createHash("sha256")
+    .update(`${pepper}:${passphrase}`)
+    .digest("hex");
 }
 
 export async function POST(req: NextRequest) {
   let phrase = "";
 
-  // Accept both JSON + form posts, with a few common field names
   const ct = req.headers.get("content-type") || "";
+
+  // Accept JSON or form posts
   if (ct.includes("application/json")) {
     const body = await req.json().catch(() => ({}));
     phrase = String(
-      body?.phrase ??
+      body?.passphrase ??
+        body?.phrase ??
         body?.code ??
         body?.key ??
         body?.registrationKey ??
@@ -37,7 +35,8 @@ export async function POST(req: NextRequest) {
     const form = await req.formData().catch(() => undefined);
     if (form) {
       phrase = String(
-        form.get("phrase") ??
+        form.get("passphrase") ??
+          form.get("phrase") ??
           form.get("code") ??
           form.get("key") ??
           form.get("registrationKey") ??
@@ -46,67 +45,65 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  phrase = cleanPhrase(phrase);
-
   if (!phrase) {
-    return NextResponse.json({ error: "missing_registration_key" }, { status: 400 });
+    return NextResponse.redirect(
+      new URL("/register-kiosk?error=missing", req.url),
+      303
+    );
   }
 
-  const passphraseHash = hashPhrase(phrase);
-  const now = new Date();
+  const hash = hashPassphrase(phrase);
 
-  // Find a valid, unused invite
   const invite = await prisma.kioskInvite.findFirst({
     where: {
-      passphraseHash,
-      used: false,
-      expiresAt: { gt: now },
-    },
-    select: {
-      id: true,
-      organisationId: true,
-      stationId: true,
-      kioskName: true,
+      passphraseHash: hash,
     },
   });
 
   if (!invite) {
-    return NextResponse.json({ error: "invalid_or_expired" }, { status: 400 });
+    return NextResponse.redirect(
+      new URL("/register-kiosk?error=invalid", req.url),
+      303
+    );
   }
 
-  // Create the device (your “kiosk”)
-  const kioskKey = makeKioskKey();
+  if (invite.used) {
+    return NextResponse.redirect(
+      new URL("/register-kiosk?error=used", req.url),
+      303
+    );
+  }
 
+  if (invite.expiresAt < new Date()) {
+    return NextResponse.redirect(
+      new URL("/register-kiosk?error=invalid", req.url),
+      303
+    );
+  }
+
+  // Create the kiosk device
   const device = await prisma.device.create({
     data: {
       organisationId: invite.organisationId,
       stationId: invite.stationId,
-      name: invite.kioskName && invite.kioskName.length > 0 ? invite.kioskName : "Kiosk",
-      kioskKey,
+      name: "Kiosk",
+      kioskKey: crypto.randomUUID(),
       active: true,
-      lastSeenAt: now,
     },
-    select: { id: true },
   });
 
-  // Mark invite used
+  // Mark invite as used
   await prisma.kioskInvite.update({
     where: { id: invite.id },
-    data: { used: true, usedAt: now },
+    data: {
+      used: true,
+      usedAt: new Date(),
+    },
   });
 
-  // Store kiosk key in an httpOnly cookie for the kiosk app to use
-  const res = NextResponse.redirect(new URL("/kiosk", req.url), 303);
-  res.cookies.set("kioskKey", kioskKey, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 365, // 1 year
-  });
-
-  // Optional: also include deviceId for debugging
-  res.headers.set("x-kiosk-device-id", device.id);
-
-  return res;
+  // Redirect to kiosk UI with device key
+  return NextResponse.redirect(
+    new URL(`/kiosk?device=${device.kioskKey}`, req.url),
+    303
+  );
 }
