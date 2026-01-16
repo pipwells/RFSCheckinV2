@@ -2,6 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { prisma } from "@/lib/db";
+import type { PrismaClient } from "@prisma/client";
+
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,7 +61,7 @@ export async function POST(req: NextRequest) {
     const now = new Date();
 
     // Transaction: either everything succeeds, or nothing changes.
-    const { kioskKey } = await prisma.$transaction(async (tx) => {
+const { kioskKey } = await prisma.$transaction(async (tx: PrismaClient) => {
       const invite = await tx.kioskInvite.findFirst({
         where: {
           passphraseHash,
