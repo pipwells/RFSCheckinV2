@@ -2,6 +2,20 @@ import { getAdminSession } from "@/lib/admin-session";
 import { prisma } from "@/lib/db";
 import type { Device, Station } from "@prisma/client";
 
+import Link from "next/link";
+
+<div className="flex items-center justify-between mb-6">
+  <h1 className="text-2xl font-semibold">Kiosks</h1>
+
+  <Link
+    href="/admin/kiosks/invite"
+    className="rounded-lg bg-black text-white px-4 py-2 hover:bg-gray-900"
+  >
+    Invite kiosk
+  </Link>
+</div>
+
+
 type DeviceRow = {
   id: string;
   name: string;
