@@ -259,6 +259,8 @@ model KioskInvite {
   createdBy       String?
   createdAt       DateTime     @default(now())
 
+  kioskName       String       @default("") // NEW
+
   organisation    Organisation @relation(fields: [organisationId], references: [id])
   station         Station      @relation(fields: [stationId], references: [id])
 
