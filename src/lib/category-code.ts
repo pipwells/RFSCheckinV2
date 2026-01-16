@@ -8,8 +8,9 @@ export async function suggestTopLevelCode(organisationId: string) {
     (await prisma.category.findMany({
       where: { organisationId, parentId: null },
       select: { code: true },
-    })).map(c => c.code)
+    })).map((c: { code: string }) => c.code)
   );
+
   for (let i = 1; i <= 8; i++) {
     const cand = String(i);
     if (!used.has(cand)) return cand;
@@ -29,11 +30,13 @@ export async function suggestChildCode(organisationId: string, parentId: string)
     where: { organisationId, parentId },
     select: { code: true },
   });
+
   const usedLetters = new Set(
     children
-      .map(c => c.code.replace(prefix, ""))
-      .filter(s => s.length === 1 && LETTERS.includes(s))
+      .map((c: { code: string }) => c.code.replace(prefix, ""))
+      .filter((s: string) => s.length === 1 && LETTERS.includes(s))
   );
+
   for (const L of LETTERS) {
     if (!usedLetters.has(L)) return `${prefix}${L}`;
   }
