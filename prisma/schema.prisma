@@ -9,21 +9,22 @@ datasource db {
 }
 
 model Organisation {
-  id         String         @id @default(cuid())
-  name       String
-  timezone   String         @default("Australia/Sydney")
-  active     Boolean        @default(true)
-  stations   Station[]
-  members    Member[]
-  categories Category[]
-  users      User[]
-  devices    Device[]
-  auditLogs  AuditLog[]
-  notices    Notification[]
-  configs    Config[]
+  id           String         @id @default(cuid())
+  name         String
+  timezone     String         @default("Australia/Sydney")
+  active       Boolean        @default(true)
+  stations     Station[]
+  members      Member[]
+  categories   Category[]
+  users        User[]
+  devices      Device[]
+  auditLogs    AuditLog[]
+  notices      Notification[]
+  configs      Config[]
   kioskInvites KioskInvite[]
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @updatedAt
+  memberTags   MemberTag[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 }
 
 model Station {
@@ -59,34 +60,52 @@ model Device {
 }
 
 model Member {
-  id               String       @id @default(cuid())
-  organisationId   String
+  id             String @id @default(cuid())
+  organisationId String
 
   // Primary ID
   firegroundNumber String
 
   // Identity
-  firstName        String
-  lastName         String
+  firstName String
+  lastName  String
 
-  // Secondary ID
+  // Secondary ID (NOT UNIQUE - can be shared)
   mobile           String? // as entered
   mobileNormalized String? // canonical "04xxxxxxxx"
 
-  isVisitor        Boolean      @default(false)
-  status           String       @default("active")
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  isVisitor Boolean  @default(false)
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  Organisation     Organisation @relation(fields: [organisationId], references: [id])
-  Token            Token[]
-  Session          Session[]
+  Organisation Organisation @relation(fields: [organisationId], references: [id])
+  Token        Token[]
+  Session      Session[]
+  tags         MemberTag[]
 
   @@unique([organisationId, firegroundNumber])
-  @@unique([organisationId, mobileNormalized])
   @@index([organisationId, isVisitor])
+  @@index([organisationId, mobileNormalized])
 }
 
+model MemberTag {
+  id             String   @id @default(cuid())
+  organisationId String
+  memberId       String
+  tagValue       String
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  member       Member       @relation(fields: [memberId], references: [id])
+
+  // One physical tag value is unique per org (even if inactive). Reassignment is done by updating memberId.
+  @@unique([organisationId, tagValue])
+  @@index([organisationId, active])
+  @@index([memberId])
+}
 
 enum MemberType {
   member
@@ -153,70 +172,66 @@ enum SessionStatus {
 }
 
 model Category {
-  id             String        @id @default(cuid())
+  id             String  @id @default(cuid())
   organisationId String
   parentId       String?
   name           String
-  code           String        // immutable once used in activity
-  active         Boolean       @default(true)
-  sort           Int           @default(0)
+  code           String // immutable once used in activity
+  active         Boolean @default(true)
+  sort           Int     @default(0)
 
-  organisation   Organisation  @relation(fields: [organisationId], references: [id])
-  parent         Category?     @relation("CategoryToCategory", fields: [parentId], references: [id])
-  children       Category[]    @relation("CategoryToCategory")
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  parent       Category?    @relation("CategoryToCategory", fields: [parentId], references: [id])
+  children     Category[]   @relation("CategoryToCategory")
 
-  tasks          SessionTask[]
+  tasks SessionTask[]
 
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@index([organisationId, parentId, sort])
   @@unique([organisationId, code]) // code unique per org
+  @@index([organisationId, parentId, sort])
 }
 
 model SessionTask {
-  id         String   @id @default(cuid())
+  id         String @id @default(cuid())
   sessionId  String
   categoryId String
 
   // duration etc.
-  minutes    Int
-  notes      String?
+  minutes Int
+  notes   String?
 
   // snapshots for reporting longevity (do not change once written)
-  categoryCodeSnapshot String  @default("")
-  categoryNameSnapshot String  @default("")
+  categoryCodeSnapshot String @default("")
+  categoryNameSnapshot String @default("")
 
-  session    Session  @relation(fields: [sessionId], references: [id])
-  category   Category @relation(fields: [categoryId], references: [id])
+  session  Session  @relation(fields: [sessionId], references: [id])
+  category Category @relation(fields: [categoryId], references: [id])
 
   @@index([sessionId])
 }
+
 model User {
   id              String              @id @default(cuid())
   organisationId  String
   email           String              @unique
-  name            String
-  role            UserRole            @default(org_admin)
+  name            String?
+  role            String              @default("site_manager")
   organisation    Organisation        @relation(fields: [organisationId], references: [id])
   stationAccesses UserStationAccess[]
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 }
 
-enum UserRole {
-  org_admin
-  station_admin
-  super_admin
-}
-
-// Pivot table: which stations an admin can access
 model UserStationAccess {
-  id        String  @id @default(cuid())
+  id        String   @id @default(cuid())
   userId    String
   stationId String
-  user      User    @relation(fields: [userId], references: [id])
-  station   Station @relation(fields: [stationId], references: [id])
+  role      String   @default("site_manager")
+  user      User     @relation(fields: [userId], references: [id])
+  station   Station  @relation(fields: [stationId], references: [id])
+  createdAt DateTime @default(now())
 
   @@unique([userId, stationId])
 }
@@ -224,56 +239,67 @@ model UserStationAccess {
 model AuditLog {
   id             String       @id @default(cuid())
   organisationId String
-  actorType      String
-  actorId        String?
+  userId         String?
   action         String
-  entity         String
-  entityId       String
-  before         Json?
-  after          Json?
+  entityType     String
+  entityId       String?
+  message        String?
+  meta           Json?
   createdAt      DateTime     @default(now())
   organisation   Organisation @relation(fields: [organisationId], references: [id])
+
+  @@index([organisationId, createdAt])
 }
 
 model Notification {
-  id             String       @id @default(cuid())
+  id             String   @id @default(cuid())
   organisationId String
-  memberId       String?
-  sessionId      String?
-  channel        String // "sms"
-  template       String // "signout_reminder"
-  status         String // "queued" | "sent" | "failed"
-  sentAt         DateTime?
-  meta           Json?
-  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  type           String
+  message        String
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@index([organisationId, active])
 }
 
 model Config {
-  id             String       @id @default(cuid())
+  id             String   @id @default(cuid())
   organisationId String
   key            String
-  value          Json
-  organisation   Organisation @relation(fields: [organisationId], references: [id])
+  value          String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
 
   @@unique([organisationId, key])
 }
 
 model KioskInvite {
-  id              String       @id @default(cuid())
-  organisationId  String
-  stationId       String
-  passphraseHash  String
-  phraseDisplay   String
-  expiresAt       DateTime
-  used            Boolean      @default(false)
-  usedAt          DateTime?
-  createdBy       String?
-  createdAt       DateTime     @default(now())
+  id             String @id @default(cuid())
+  organisationId String
+  stationId      String
+  passphraseHash String
 
-  kioskName       String       @default("") // NEW
+  // Human-friendly code shown to the admin / entered on device
+  phraseDisplay String
 
-  organisation    Organisation @relation(fields: [organisationId], references: [id])
-  station         Station      @relation(fields: [stationId], references: [id])
+  // Added previously (your DB already has this and it’s populated)
+  kioskName String @default("")
+
+  expiresAt DateTime
+
+  // Existing DB fields (do NOT drop)
+  used      Boolean   @default(false)
+  usedAt    DateTime?
+  createdBy String?
+  createdAt DateTime  @default(now())
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  station      Station      @relation(fields: [stationId], references: [id])
 
   @@index([organisationId, stationId, used])
   @@index([expiresAt])
