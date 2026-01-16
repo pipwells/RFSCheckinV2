@@ -61,21 +61,32 @@ model Device {
 model Member {
   id               String       @id @default(cuid())
   organisationId   String
+
+  // Primary ID
+  firegroundNumber String
+
+  // Identity
   firstName        String
   lastName         String
+
+  // Secondary ID
   mobile           String? // as entered
   mobileNormalized String? // canonical "04xxxxxxxx"
+
   isVisitor        Boolean      @default(false)
   status           String       @default("active")
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
+
   Organisation     Organisation @relation(fields: [organisationId], references: [id])
   Token            Token[]
   Session          Session[]
 
-  @@index([organisationId, mobileNormalized])
+  @@unique([organisationId, firegroundNumber])
+  @@unique([organisationId, mobileNormalized])
   @@index([organisationId, isVisitor])
 }
+
 
 enum MemberType {
   member
