@@ -4,6 +4,9 @@ import { prisma } from "@/lib/db";
 import { getAdminSession } from "@/lib/admin-session";
 import { generatePassphrase, normalizePassphrase, sha256Hex } from "@/lib/passphrase";
 
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs"; // optional, but good if Prisma is used
+
 export async function POST(req: NextRequest) {
   const session = await getAdminSession();
   if (!session.user) {
