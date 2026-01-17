@@ -5,6 +5,17 @@ import { requireKiosk } from "@/lib/kioskAuth";
 
 export const dynamic = "force-dynamic";
 
+type ActiveRow = {
+  id: string;
+  memberId: string;
+  startTime: Date;
+  member: {
+    firstName: string;
+    lastName: string;
+    isVisitor: boolean;
+  } | null;
+};
+
 /**
  * Kiosk Active Sessions
  * Returns a stable shape that the kiosk UI can render without guessing.
@@ -16,7 +27,7 @@ export async function GET(req: NextRequest) {
   const { organisationId, stationId } = device;
 
   try {
-    const rows = await prisma.session.findMany({
+    const rows = (await prisma.session.findMany({
       where: { organisationId, stationId, status: "open" },
       orderBy: { startTime: "desc" },
       select: {
@@ -31,10 +42,9 @@ export async function GET(req: NextRequest) {
           },
         },
       },
-    });
+    })) as ActiveRow[];
 
-    // Normalise to the shape the kiosk expects
-    const shaped = rows.map((s) => ({
+    const shaped = rows.map((s: ActiveRow) => ({
       id: s.id,
       memberId: s.memberId,
       firstName: s.member?.firstName ?? "",
