@@ -87,14 +87,16 @@ export async function POST(req: NextRequest) {
 
     const catMap = new Map<string, CategoryRow>(cats.map((c: CategoryRow) => [c.id, c]));
 
-    // Allocate minutes across tasks (even split; UI currently sends 0 or 1)
+    // Allocate minutes across tasks (even split)
     const taskCount = categoryIds.length;
     const perTask = taskCount > 0 ? Math.max(0, Math.floor(minutes / taskCount)) : 0;
     const remainder = taskCount > 0 ? minutes - perTask * taskCount : 0;
 
-    await prisma.$transaction(async (tx) => {
-      // Close the session
-      await tx.session.update({
+    // Build transactional operations (no callback param => no implicit any)
+    const ops: any[] = [];
+
+    ops.push(
+      prisma.session.update({
         where: { id: session.id },
         data: {
           endTime: end,
@@ -103,13 +105,14 @@ export async function POST(req: NextRequest) {
           status: "closed",
           editLevel: "self",
         },
-      });
+      })
+    );
 
-      // Write tasks (optional)
-      if (taskCount > 0) {
-        const creates = categoryIds.map((categoryId, idx) => {
-          const c = catMap.get(categoryId);
-          return tx.sessionTask.create({
+    if (taskCount > 0) {
+      categoryIds.forEach((categoryId, idx) => {
+        const c = catMap.get(categoryId);
+        ops.push(
+          prisma.sessionTask.create({
             data: {
               sessionId: session.id,
               categoryId,
@@ -118,12 +121,12 @@ export async function POST(req: NextRequest) {
               categoryCodeSnapshot: c?.code ?? "",
               categoryNameSnapshot: c?.name ?? "",
             },
-          });
-        });
+          })
+        );
+      });
+    }
 
-        await Promise.all(creates);
-      }
-    });
+    await prisma.$transaction(ops);
 
     return NextResponse.json({ status: "checked_out", sessionId: session.id });
   } catch (err) {
