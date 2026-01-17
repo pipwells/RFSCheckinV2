@@ -16,6 +16,12 @@ type CheckoutBody = {
   tasks?: CheckoutTaskInput[];
 };
 
+type CategoryRow = {
+  id: string;
+  code: string;
+  name: string;
+};
+
 function safeInt(n: unknown): number | null {
   if (typeof n !== "number") return null;
   if (!Number.isFinite(n)) return null;
@@ -72,14 +78,14 @@ export async function POST(req: NextRequest) {
     );
 
     // Preload categories for snapshots (scoped to org)
-    const cats = categoryIds.length
-      ? await prisma.category.findMany({
+    const cats: CategoryRow[] = categoryIds.length
+      ? ((await prisma.category.findMany({
           where: { organisationId: device.organisationId, id: { in: categoryIds } },
           select: { id: true, code: true, name: true },
-        })
+        })) as CategoryRow[])
       : [];
 
-    const catMap = new Map(cats.map((c) => [c.id, c]));
+    const catMap = new Map<string, CategoryRow>(cats.map((c: CategoryRow) => [c.id, c]));
 
     // Allocate minutes across tasks (even split; UI currently sends 0 or 1)
     const taskCount = categoryIds.length;
