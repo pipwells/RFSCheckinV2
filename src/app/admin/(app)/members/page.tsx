@@ -22,7 +22,7 @@ async function getData(orgId: string): Promise<MemberRow[]> {
   return members.map((m) => ({
     id: m.id,
     firegroundNumber: (m as any).firegroundNumber ?? "",
-    name: `${m.firstName} ${m.lastName}`.trim(),
+    name: `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim(),
     mobile: m.mobile ?? "",
     status: (m as any).status ?? "active",
   }));
@@ -54,9 +54,7 @@ export default async function MembersAdminPage() {
               <div>
                 <div className="font-semibold">
                   {row.name || "—"}{" "}
-                  <span className="text-sm text-gray-500 ml-2">
-                    #{row.firegroundNumber || "—"}
-                  </span>
+                  <span className="text-sm text-gray-500 ml-2">#{row.firegroundNumber || "—"}</span>
                 </div>
                 <div className="text-sm text-gray-600">
                   {row.mobile ? `Mobile: ${row.mobile}` : "Mobile: —"} · Status: {row.status}
@@ -64,12 +62,17 @@ export default async function MembersAdminPage() {
               </div>
 
               <div className="flex gap-3">
-                <button className="text-sm text-blue-600 hover:underline" disabled>
+                <Link href={`/admin/members/${row.id}`} className="text-sm text-blue-600 hover:underline">
                   Edit
-                </button>
-                <button className="text-sm text-red-600 hover:underline" disabled>
+                </Link>
+
+                {/* Delete is only available from the edit page, and only when inactive/disabled */}
+                <Link
+                  href={`/admin/members/${row.id}#delete`}
+                  className="text-sm text-red-600 hover:underline"
+                >
                   Delete
-                </button>
+                </Link>
               </div>
             </div>
           ))
