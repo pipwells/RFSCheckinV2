@@ -1,3 +1,4 @@
+// src/lib/kioskAuth.ts
 import { prisma } from "./db";
 import { cookies as getCookies } from "next/headers";
 import type { NextRequest } from "next/server";
@@ -24,8 +25,10 @@ export async function requireKiosk(req: NextRequest): Promise<Device | null> {
 
   if (!device) return null;
 
-  // best-effort heart-beat
-  await prisma.device.update({ where: { id: device.id }, data: { lastSeenAt: new Date() } });
+  // Best-effort heart-beat - do NOT block the request
+  void prisma.device
+    .update({ where: { id: device.id }, data: { lastSeenAt: new Date() } })
+    .catch(() => {});
 
   return device;
 }
