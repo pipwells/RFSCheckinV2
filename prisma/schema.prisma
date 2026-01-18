@@ -64,15 +64,15 @@ model Member {
   organisationId String
 
   // Primary ID
-  firegroundNumber String
+  memberNumber String
 
   // Identity
   firstName String
   lastName  String
 
   // Secondary ID (NOT UNIQUE - can be shared)
-  mobile           String? // as entered
-  mobileNormalized String? // canonical "04xxxxxxxx"
+  mobile           String?
+  mobileNormalized String?
 
   isVisitor Boolean  @default(false)
   status    String   @default("active")
@@ -84,7 +84,7 @@ model Member {
   Session      Session[]
   tags         MemberTag[]
 
-  @@unique([organisationId, firegroundNumber])
+  @@unique([organisationId, memberNumber])
   @@index([organisationId, isVisitor])
   @@index([organisationId, mobileNormalized])
 }
