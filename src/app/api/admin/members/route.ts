@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAdminSession } from "@/lib/admin-session";
 import { normaliseAUMobile } from "@/lib/mobile";
+import type { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,15 +50,20 @@ export async function POST(req: NextRequest) {
     rfidTag?: string;
   };
 
-  const memberNumber = typeof body.memberNumber === "string" ? body.memberNumber.trim() : "";
-  const firstName = typeof body.firstName === "string" ? body.firstName.trim() : "";
+  const memberNumber =
+    typeof body.memberNumber === "string" ? body.memberNumber.trim() : "";
+  const firstName =
+    typeof body.firstName === "string" ? body.firstName.trim() : "";
   const lastName = typeof body.lastName === "string" ? body.lastName.trim() : "";
   const mobile = typeof body.mobile === "string" ? body.mobile.trim() : "";
   const rfidTag = typeof body.rfidTag === "string" ? body.rfidTag.trim() : "";
 
-  if (!memberNumber) return NextResponse.json({ error: "member_required" }, { status: 400 });
-  if (!firstName) return NextResponse.json({ error: "first_required" }, { status: 400 });
-  if (!lastName) return NextResponse.json({ error: "last_required" }, { status: 400 });
+  if (!memberNumber)
+    return NextResponse.json({ error: "member_required" }, { status: 400 });
+  if (!firstName)
+    return NextResponse.json({ error: "first_required" }, { status: 400 });
+  if (!lastName)
+    return NextResponse.json({ error: "last_required" }, { status: 400 });
 
   const mobileNormalized = mobile ? normaliseAUMobile(mobile) : null;
   if (mobile && !mobileNormalized) {
@@ -65,31 +71,35 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const created = await prisma.$transaction(async (tx) => {
-      const m = await tx.member.create({
-        data: {
-          organisationId: orgId,
-          memberNumber,
-          firstName,
-          lastName,
-          mobile: mobile || null,
-          mobileNormalized,
-          isVisitor: false,
-          status: "active",
-        },
-        select: { id: true },
-      });
-
-      if (rfidTag) {
-        await tx.memberTag.upsert({
-          where: { organisationId_tagValue: { organisationId: orgId, tagValue: rfidTag } },
-          create: { organisationId: orgId, memberId: m.id, tagValue: rfidTag, active: true },
-          update: { memberId: m.id, active: true },
+    const created = await prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        const m = await tx.member.create({
+          data: {
+            organisationId: orgId,
+            memberNumber,
+            firstName,
+            lastName,
+            mobile: mobile || null,
+            mobileNormalized,
+            isVisitor: false,
+            status: "active",
+          },
+          select: { id: true },
         });
-      }
 
-      return m;
-    });
+        if (rfidTag) {
+          await tx.memberTag.upsert({
+            where: {
+              organisationId_tagValue: { organisationId: orgId, tagValue: rfidTag },
+            },
+            create: { organisationId: orgId, memberId: m.id, tagValue: rfidTag, active: true },
+            update: { memberId: m.id, active: true },
+          });
+        }
+
+        return m;
+      }
+    );
 
     return NextResponse.json({ ok: true, id: created.id });
   } catch (e: unknown) {
