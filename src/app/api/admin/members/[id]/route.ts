@@ -1,3 +1,4 @@
+// src/app/api/admin/members/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAdminSession } from "@/lib/admin-session";
@@ -8,15 +9,51 @@ export const dynamic = "force-dynamic";
 
 type Params = { id: string };
 
-function safeRedirectPath(input: unknown, fallback: string) {
-  const v = typeof input === "string" ? input.trim() : "";
-  if (!v) return fallback;
-  if (!v.startsWith("/")) return fallback;
-  if (v.startsWith("//")) return fallback;
-  return v;
+function isEightDigits(v: string): boolean {
+  return /^\d{8}$/.test(v);
 }
 
-export async function GET(_req: NextRequest, context: { params: Promise<Params> }) {
+function redirect303(req: NextRequest, to: string) {
+  return NextResponse.redirect(new URL(to, req.url), 303);
+}
+
+async function parseBody(req: NextRequest): Promise<{
+  methodOverride?: string;
+  redirectTo?: string;
+  memberNumber?: string;
+  firstName?: string;
+  lastName?: string;
+  mobile?: string;
+  status?: string;
+}> {
+  const ct = req.headers.get("content-type") || "";
+
+  if (ct.includes("application/json")) {
+    const j = (await req.json().catch(() => ({}))) as any;
+    return {
+      methodOverride: typeof j?._method === "string" ? j._method : undefined,
+      redirectTo: typeof j?.redirect === "string" ? j.redirect : undefined,
+      memberNumber: typeof j?.memberNumber === "string" ? j.memberNumber.trim() : undefined,
+      firstName: typeof j?.firstName === "string" ? j.firstName.trim() : undefined,
+      lastName: typeof j?.lastName === "string" ? j.lastName.trim() : undefined,
+      mobile: typeof j?.mobile === "string" ? j.mobile.trim() : undefined,
+      status: typeof j?.status === "string" ? j.status.trim() : undefined,
+    };
+  }
+
+  const fd = await req.formData();
+  return {
+    methodOverride: typeof fd.get("_method") === "string" ? String(fd.get("_method")) : undefined,
+    redirectTo: typeof fd.get("redirect") === "string" ? String(fd.get("redirect")) : undefined,
+    memberNumber: typeof fd.get("memberNumber") === "string" ? String(fd.get("memberNumber")).trim() : undefined,
+    firstName: typeof fd.get("firstName") === "string" ? String(fd.get("firstName")).trim() : undefined,
+    lastName: typeof fd.get("lastName") === "string" ? String(fd.get("lastName")).trim() : undefined,
+    mobile: typeof fd.get("mobile") === "string" ? String(fd.get("mobile")).trim() : undefined,
+    status: typeof fd.get("status") === "string" ? String(fd.get("status")).trim() : undefined,
+  };
+}
+
+export async function GET(req: NextRequest, context: { params: Promise<Params> }) {
   const session = await getAdminSession();
   const orgId = session.user?.organisationId;
   if (!orgId) return NextResponse.json({ error: "unauthorised" }, { status: 401 });
@@ -25,83 +62,62 @@ export async function GET(_req: NextRequest, context: { params: Promise<Params> 
 
   const m = await prisma.member.findFirst({
     where: { id, organisationId: orgId, isVisitor: false },
-    select: {
-      id: true,
-      memberNumber: true,
-      firstName: true,
-      lastName: true,
-      mobile: true,
-      mobileNormalized: true,
-      status: true,
-    },
+    select: { id: true, memberNumber: true, firstName: true, lastName: true, mobile: true, status: true },
   });
 
   if (!m) return NextResponse.json({ error: "not_found" }, { status: 404 });
+
   return NextResponse.json({ ok: true, member: m });
 }
 
-/**
- * POST handler for HTML forms:
- * - _method=PATCH to update fields/status
- * - _method=DELETE to delete record
- */
 export async function POST(req: NextRequest, context: { params: Promise<Params> }) {
+  // Support HTML forms using POST + _method=PATCH
+  const body = await parseBody(req);
+  const method = (body.methodOverride || "").toUpperCase();
+
+  if (method === "PATCH") return PATCH(req, context);
+  if (method === "DELETE") return DELETE(req, context);
+
+  return NextResponse.json({ error: "unsupported" }, { status: 405 });
+}
+
+export async function PATCH(req: NextRequest, context: { params: Promise<Params> }) {
   const session = await getAdminSession();
   const orgId = session.user?.organisationId;
   if (!orgId) return NextResponse.json({ error: "unauthorised" }, { status: 401 });
 
   const { id } = await context.params;
+  const body = await parseBody(req);
 
-  const form = await req.formData();
-  const method = String(form.get("_method") ?? "POST").toUpperCase();
-  const redirectTo = safeRedirectPath(form.get("redirect"), "/admin/members");
+  const data: Record<string, any> = {};
 
-  const existing = await prisma.member.findFirst({
-    where: { id, organisationId: orgId, isVisitor: false },
-    select: { id: true },
-  });
-  if (!existing) return NextResponse.redirect(new URL("/admin/members?error=not_found", req.url), 303);
-
-  if (method === "DELETE") {
-    await prisma.member.delete({ where: { id } });
-    return NextResponse.redirect(new URL(redirectTo, req.url), 303);
-  }
-
-  if (method !== "PATCH") {
-    return NextResponse.json({ error: "method_not_allowed" }, { status: 405 });
-  }
-
-  const firstName = typeof form.get("firstName") === "string" ? String(form.get("firstName")).trim() : "";
-  const lastName = typeof form.get("lastName") === "string" ? String(form.get("lastName")).trim() : "";
-  const mobile = typeof form.get("mobile") === "string" ? String(form.get("mobile")).trim() : "";
-  const status = typeof form.get("status") === "string" ? String(form.get("status")).trim() : "";
-
-  const data: {
-    firstName?: string;
-    lastName?: string;
-    mobile?: string | null;
-    mobileNormalized?: string | null;
-    status?: string;
-  } = {};
-
-  if (firstName) data.firstName = firstName;
-  if (lastName) data.lastName = lastName;
-
-  // Allow clearing mobile by submitting blank
-  if (mobile) {
-    const norm = normaliseAUMobile(mobile);
-    if (!norm) {
-      return NextResponse.redirect(new URL(`/admin/members/${id}?error=mobile_invalid`, req.url), 303);
+  if (typeof body.memberNumber === "string") {
+    if (!isEightDigits(body.memberNumber)) {
+      if (body.redirectTo) return redirect303(req, `${body.redirectTo}?error=membernumber_invalid`);
+      return NextResponse.json({ error: "membernumber_invalid" }, { status: 400 });
     }
-    data.mobile = mobile;
-    data.mobileNormalized = norm;
-  } else if (form.has("mobile")) {
-    data.mobile = null;
-    data.mobileNormalized = null;
+    data.memberNumber = body.memberNumber;
   }
 
-  if (status === "active" || status === "disabled") {
-    data.status = status;
+  if (typeof body.firstName === "string") data.firstName = body.firstName;
+  if (typeof body.lastName === "string") data.lastName = body.lastName;
+
+  if (typeof body.mobile === "string") {
+    const mn = normaliseAUMobile(body.mobile);
+    if (!mn) {
+      if (body.redirectTo) return redirect303(req, `${body.redirectTo}?error=mobile_invalid`);
+      return NextResponse.json({ error: "mobile_invalid" }, { status: 400 });
+    }
+    data.mobile = body.mobile;
+    data.mobileNormalized = mn;
+  }
+
+  if (typeof body.status === "string") {
+    if (body.status !== "active" && body.status !== "disabled" && body.status !== "archived") {
+      if (body.redirectTo) return redirect303(req, `${body.redirectTo}?error=status_invalid`);
+      return NextResponse.json({ error: "status_invalid" }, { status: 400 });
+    }
+    data.status = body.status;
   }
 
   try {
@@ -109,60 +125,15 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
       where: { id },
       data,
     });
-  } catch (e: unknown) {
-    const err = e as { code?: string };
-    if (err?.code === "P2002") {
-      return NextResponse.redirect(new URL(`/admin/members/${id}?error=duplicate`, req.url), 303);
+
+    if (body.redirectTo) return redirect303(req, body.redirectTo);
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    if (e?.code === "P2002") {
+      if (body.redirectTo) return redirect303(req, `${body.redirectTo}?error=duplicate`);
+      return NextResponse.json({ error: "duplicate" }, { status: 409 });
     }
-    return NextResponse.redirect(new URL(`/admin/members/${id}?error=failed`, req.url), 303);
-  }
-
-  return NextResponse.redirect(new URL(redirectTo, req.url), 303);
-}
-
-export async function PATCH(req: NextRequest, context: { params: Promise<Params> }) {
-  // Optional JSON PATCH (if you later use fetch() updates)
-  const session = await getAdminSession();
-  const orgId = session.user?.organisationId;
-  if (!orgId) return NextResponse.json({ error: "unauthorised" }, { status: 401 });
-
-  const { id } = await context.params;
-  const body = (await req.json().catch(() => ({}))) as {
-    firstName?: string;
-    lastName?: string;
-    mobile?: string | null;
-    status?: "active" | "disabled";
-  };
-
-  const existing = await prisma.member.findFirst({
-    where: { id, organisationId: orgId, isVisitor: false },
-    select: { id: true },
-  });
-  if (!existing) return NextResponse.json({ error: "not_found" }, { status: 404 });
-
-  const data: any = {};
-  if (typeof body.firstName === "string") data.firstName = body.firstName.trim();
-  if (typeof body.lastName === "string") data.lastName = body.lastName.trim();
-
-  if (body.mobile === null) {
-    data.mobile = null;
-    data.mobileNormalized = null;
-  } else if (typeof body.mobile === "string") {
-    const m = body.mobile.trim();
-    const norm = m ? normaliseAUMobile(m) : null;
-    if (m && !norm) return NextResponse.json({ error: "mobile_invalid" }, { status: 400 });
-    data.mobile = m || null;
-    data.mobileNormalized = norm;
-  }
-
-  if (body.status === "active" || body.status === "disabled") data.status = body.status;
-
-  try {
-    const updated = await prisma.member.update({ where: { id }, data });
-    return NextResponse.json({ ok: true, member: updated });
-  } catch (e: unknown) {
-    const err = e as { code?: string };
-    if (err?.code === "P2002") return NextResponse.json({ error: "duplicate" }, { status: 409 });
+    if (body.redirectTo) return redirect303(req, `${body.redirectTo}?error=failed`);
     return NextResponse.json({ error: "update_failed" }, { status: 500 });
   }
 }
@@ -173,13 +144,19 @@ export async function DELETE(req: NextRequest, context: { params: Promise<Params
   if (!orgId) return NextResponse.json({ error: "unauthorised" }, { status: 401 });
 
   const { id } = await context.params;
+  const body = await parseBody(req);
 
-  const existing = await prisma.member.findFirst({
-    where: { id, organisationId: orgId, isVisitor: false },
-    select: { id: true },
-  });
-  if (!existing) return NextResponse.json({ error: "not_found" }, { status: 404 });
+  // Archive-only (no hard delete)
+  try {
+    await prisma.member.update({
+      where: { id },
+      data: { status: "archived" },
+    });
 
-  await prisma.member.delete({ where: { id } });
-  return NextResponse.json({ ok: true });
+    if (body.redirectTo) return redirect303(req, body.redirectTo);
+    return NextResponse.json({ ok: true });
+  } catch {
+    if (body.redirectTo) return redirect303(req, `${body.redirectTo}?error=failed`);
+    return NextResponse.json({ error: "archive_failed" }, { status: 500 });
+  }
 }
