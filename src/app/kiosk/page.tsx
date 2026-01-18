@@ -3,9 +3,9 @@
 /**
  * KIOSK PAGE
  * - Keyboard-wedge RFID input (keeps focus)
- * - Scan supports RFID tag / member / Mobile (with ambiguity selection)
+ * - Scan supports RFID tag / Member No. / Mobile (with ambiguity selection)
  * - Sidebar shows who is currently in station
- * - Checkout panel (uses existing /api/kiosk/checkout contract you already have wired)
+ * - Checkout panel (requires activity selection before confirm)
  *
  * Landmarks:
  *   [LANDMARK: imports]
@@ -398,6 +398,12 @@ export default function KioskPage() {
   async function confirmCheckout() {
     if (!checkoutSession || working) return;
 
+    // Require activity selection (UI also enforces this)
+    if (!selectedCategoryId) {
+      await beepNegative();
+      return;
+    }
+
     setWorking(true);
 
     try {
@@ -413,7 +419,7 @@ export default function KioskPage() {
           startTime: startISO,
           endTime: endISO,
           minutes,
-          tasks: selectedCategoryId ? [{ categoryId: selectedCategoryId }] : [],
+          tasks: [{ categoryId: selectedCategoryId }],
         }),
       });
 
@@ -436,6 +442,8 @@ export default function KioskPage() {
       window.setTimeout(() => entryRef.current?.focus(), 50);
     }
   }
+
+  const canConfirmCheckout = !!checkoutSession && !!selectedCategoryId && !working;
 
   // --------------------------------------------------
   // [LANDMARK: UI]
@@ -501,7 +509,7 @@ export default function KioskPage() {
                 <div className="flex items-end justify-between gap-3">
                   <div>
                     <div className="text-lg font-semibold">Member check-in</div>
-                    <div className="text-sm text-zinc-300">Scan RFID, enter member No., or enter Mobile.</div>
+                    <div className="text-sm text-zinc-300">Scan RFID, enter Member No., or enter Mobile.</div>
                   </div>
                   <div className="text-xs text-zinc-400">{working ? "Working..." : "Ready"}</div>
                 </div>
@@ -514,7 +522,7 @@ export default function KioskPage() {
                     if (e.key === "Enter") submitScan();
                   }}
                   className="mt-3 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-3 text-lg tracking-wide outline-none focus:border-emerald-600"
-                  placeholder="RFID / member / Mobile"
+                  placeholder="RFID / Member No. / Mobile"
                   inputMode="text"
                   autoComplete="off"
                   spellCheck={false}
@@ -534,7 +542,7 @@ export default function KioskPage() {
                           <div className="font-semibold">
                             {m.firstName} {m.lastName}
                           </div>
-                          <div className="text-xs text-amber-200">member: {m.memberNumber}</div>
+                          <div className="text-xs text-amber-200">Member No.: {m.memberNumber}</div>
                         </button>
                       ))}
                     </div>
@@ -620,7 +628,12 @@ export default function KioskPage() {
 
                   <button
                     onClick={confirmCheckout}
-                    className="rounded-md border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50 px-4 py-3 font-semibold"
+                    disabled={!canConfirmCheckout}
+                    className={`rounded-md border px-4 py-3 font-semibold ${
+                      canConfirmCheckout
+                        ? "border-emerald-700 bg-emerald-900/30 hover:bg-emerald-900/50"
+                        : "border-zinc-700 bg-zinc-900/30 text-zinc-400 cursor-not-allowed"
+                    }`}
                   >
                     Confirm checkout
                   </button>
