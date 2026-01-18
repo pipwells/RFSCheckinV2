@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAdminSession } from "@/lib/admin-session";
 import { normaliseAUMobile } from "@/lib/mobile";
+import type { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,7 +33,7 @@ async function parseBody(req: NextRequest): Promise<{
   if (ct.includes("application/json")) {
     const j = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     return {
-      methodOverride: typeof j?._method === "string" ? j._method : undefined,
+      methodOverride: typeof j?._method === "string" ? (j._method as string) : undefined,
       redirectTo: typeof j?.redirect === "string" ? (j.redirect as string) : undefined,
       memberNumber: typeof j?.memberNumber === "string" ? (j.memberNumber as string).trim() : undefined,
       firstName: typeof j?.firstName === "string" ? (j.firstName as string).trim() : undefined,
@@ -133,7 +134,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<Params>
   }
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       if (Object.keys(data).length > 0) {
         await tx.member.update({
           where: { id: member.id },
