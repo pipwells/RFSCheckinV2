@@ -25,19 +25,21 @@ async function parseBody(req: NextRequest): Promise<{
   lastName?: string;
   mobile?: string;
   status?: string;
+  rfidTag?: string;
 }> {
   const ct = req.headers.get("content-type") || "";
 
   if (ct.includes("application/json")) {
-    const j = (await req.json().catch(() => ({}))) as any;
+    const j = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     return {
       methodOverride: typeof j?._method === "string" ? j._method : undefined,
-      redirectTo: typeof j?.redirect === "string" ? j.redirect : undefined,
-      memberNumber: typeof j?.memberNumber === "string" ? j.memberNumber.trim() : undefined,
-      firstName: typeof j?.firstName === "string" ? j.firstName.trim() : undefined,
-      lastName: typeof j?.lastName === "string" ? j.lastName.trim() : undefined,
-      mobile: typeof j?.mobile === "string" ? j.mobile.trim() : undefined,
-      status: typeof j?.status === "string" ? j.status.trim() : undefined,
+      redirectTo: typeof j?.redirect === "string" ? (j.redirect as string) : undefined,
+      memberNumber: typeof j?.memberNumber === "string" ? (j.memberNumber as string).trim() : undefined,
+      firstName: typeof j?.firstName === "string" ? (j.firstName as string).trim() : undefined,
+      lastName: typeof j?.lastName === "string" ? (j.lastName as string).trim() : undefined,
+      mobile: typeof j?.mobile === "string" ? (j.mobile as string).trim() : undefined,
+      status: typeof j?.status === "string" ? (j.status as string).trim() : undefined,
+      rfidTag: typeof j?.rfidTag === "string" ? (j.rfidTag as string).trim() : undefined,
     };
   }
 
@@ -50,6 +52,7 @@ async function parseBody(req: NextRequest): Promise<{
     lastName: typeof fd.get("lastName") === "string" ? String(fd.get("lastName")).trim() : undefined,
     mobile: typeof fd.get("mobile") === "string" ? String(fd.get("mobile")).trim() : undefined,
     status: typeof fd.get("status") === "string" ? String(fd.get("status")).trim() : undefined,
+    rfidTag: typeof fd.get("rfidTag") === "string" ? String(fd.get("rfidTag")).trim() : undefined,
   };
 }
 
@@ -89,7 +92,16 @@ export async function PATCH(req: NextRequest, context: { params: Promise<Params>
   const { id } = await context.params;
   const body = await parseBody(req);
 
-  const data: Record<string, any> = {};
+  const member = await prisma.member.findFirst({
+    where: { id, organisationId: orgId, isVisitor: false },
+    select: { id: true },
+  });
+  if (!member) {
+    if (body.redirectTo) return redirect303(req, `${body.redirectTo}?error=not_found`);
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
+  const data: Record<string, unknown> = {};
 
   if (typeof body.memberNumber === "string") {
     if (!isEightDigits(body.memberNumber)) {
@@ -121,15 +133,48 @@ export async function PATCH(req: NextRequest, context: { params: Promise<Params>
   }
 
   try {
-    await prisma.member.update({
-      where: { id },
-      data,
+    await prisma.$transaction(async (tx) => {
+      if (Object.keys(data).length > 0) {
+        await tx.member.update({
+          where: { id: member.id },
+          data,
+        });
+      }
+
+      if (typeof body.rfidTag === "string") {
+        const tag = body.rfidTag.trim();
+
+        if (!tag) {
+          // Clear existing active tags for this member
+          await tx.memberTag.updateMany({
+            where: { organisationId: orgId, memberId: member.id, active: true },
+            data: { active: false },
+          });
+        } else {
+          // Assign/reassign the physical tag within the org
+          await tx.memberTag.upsert({
+            where: { organisationId_tagValue: { organisationId: orgId, tagValue: tag } },
+            create: {
+              organisationId: orgId,
+              memberId: member.id,
+              tagValue: tag,
+              active: true,
+            },
+            update: {
+              memberId: member.id,
+              active: true,
+            },
+          });
+        }
+      }
     });
 
     if (body.redirectTo) return redirect303(req, body.redirectTo);
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    if (e?.code === "P2002") {
+  } catch (e: unknown) {
+    const err = e as { code?: string };
+
+    if (err?.code === "P2002") {
       if (body.redirectTo) return redirect303(req, `${body.redirectTo}?error=duplicate`);
       return NextResponse.json({ error: "duplicate" }, { status: 409 });
     }
@@ -146,10 +191,19 @@ export async function DELETE(req: NextRequest, context: { params: Promise<Params
   const { id } = await context.params;
   const body = await parseBody(req);
 
+  const member = await prisma.member.findFirst({
+    where: { id, organisationId: orgId, isVisitor: false },
+    select: { id: true },
+  });
+  if (!member) {
+    if (body.redirectTo) return redirect303(req, `${body.redirectTo}?error=not_found`);
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
   // Archive-only (no hard delete)
   try {
     await prisma.member.update({
-      where: { id },
+      where: { id: member.id },
       data: { status: "archived" },
     });
 

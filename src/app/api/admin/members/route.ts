@@ -46,12 +46,14 @@ export async function POST(req: NextRequest) {
     firstName?: string;
     lastName?: string;
     mobile?: string;
+    rfidTag?: string;
   };
 
   const memberNumber = typeof body.memberNumber === "string" ? body.memberNumber.trim() : "";
   const firstName = typeof body.firstName === "string" ? body.firstName.trim() : "";
   const lastName = typeof body.lastName === "string" ? body.lastName.trim() : "";
   const mobile = typeof body.mobile === "string" ? body.mobile.trim() : "";
+  const rfidTag = typeof body.rfidTag === "string" ? body.rfidTag.trim() : "";
 
   if (!memberNumber) return NextResponse.json({ error: "member_required" }, { status: 400 });
   if (!firstName) return NextResponse.json({ error: "first_required" }, { status: 400 });
@@ -63,18 +65,30 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const created = await prisma.member.create({
-      data: {
-        organisationId: orgId,
-        memberNumber,
-        firstName,
-        lastName,
-        mobile: mobile || null,
-        mobileNormalized,
-        isVisitor: false,
-        status: "active",
-      },
-      select: { id: true },
+    const created = await prisma.$transaction(async (tx) => {
+      const m = await tx.member.create({
+        data: {
+          organisationId: orgId,
+          memberNumber,
+          firstName,
+          lastName,
+          mobile: mobile || null,
+          mobileNormalized,
+          isVisitor: false,
+          status: "active",
+        },
+        select: { id: true },
+      });
+
+      if (rfidTag) {
+        await tx.memberTag.upsert({
+          where: { organisationId_tagValue: { organisationId: orgId, tagValue: rfidTag } },
+          create: { organisationId: orgId, memberId: m.id, tagValue: rfidTag, active: true },
+          update: { memberId: m.id, active: true },
+        });
+      }
+
+      return m;
     });
 
     return NextResponse.json({ ok: true, id: created.id });
@@ -83,7 +97,9 @@ export async function POST(req: NextRequest) {
 
     // Prisma unique constraint
     if (err?.code === "P2002") {
-      const target = Array.isArray(err?.meta?.target) ? (err.meta.target as unknown[]).join(",") : "unique";
+      const target = Array.isArray(err?.meta?.target)
+        ? (err.meta.target as unknown[]).join(",")
+        : "unique";
       return NextResponse.json({ error: "duplicate", target }, { status: 409 });
     }
 

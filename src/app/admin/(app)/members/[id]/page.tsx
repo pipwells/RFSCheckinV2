@@ -23,10 +23,18 @@ export default async function EditMemberPage({
       lastName: true,
       mobile: true,
       status: true,
+      tags: {
+        where: { organisationId: orgId, active: true },
+        select: { tagValue: true, updatedAt: true },
+        orderBy: { updatedAt: "desc" },
+        take: 1,
+      },
     },
   });
 
   if (!m) return notFound();
+
+  const currentRfidTag = m.tags?.[0]?.tagValue ?? "";
 
   return (
     <div className="max-w-xl space-y-6">
@@ -89,6 +97,20 @@ export default async function EditMemberPage({
             placeholder="04xxxxxxxx"
             required
           />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium">RFID tag</label>
+          <input
+            name="rfidTag"
+            defaultValue={currentRfidTag}
+            className="border rounded-lg px-3 py-2 w-full font-mono"
+            placeholder="Scan tag now"
+            autoComplete="off"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Leave blank to remove the tag. Click into the field, then scan the tag.
+          </p>
         </div>
 
         <button className="rounded-lg px-4 py-2 bg-black text-white">
