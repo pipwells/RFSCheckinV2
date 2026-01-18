@@ -1,10 +1,15 @@
+// src/app/admin/(app)/members/[id]/page.tsx
 import { prisma } from "@/lib/db";
 import { getAdminSession } from "@/lib/admin-session";
 import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export default async function EditMemberPage({ params }: { params: { id: string } }) {
+export default async function EditMemberPage({
+  params,
+}: {
+  params: { id: string };
+}) {
   const session = await getAdminSession();
   if (!session.user?.organisationId) return null;
   const orgId = session.user.organisationId;
@@ -13,12 +18,14 @@ export default async function EditMemberPage({ params }: { params: { id: string 
     where: { id: params.id, organisationId: orgId, isVisitor: false },
     select: {
       id: true,
+      memberNumber: true,
       firstName: true,
       lastName: true,
       mobile: true,
       status: true,
     },
   });
+
   if (!m) return notFound();
 
   return (
@@ -38,6 +45,20 @@ export default async function EditMemberPage({ params }: { params: { id: string 
       >
         <input type="hidden" name="_method" value="PATCH" />
         <input type="hidden" name="redirect" value="/admin/members" />
+
+        <div>
+          <label className="block text-sm font-medium">Member number</label>
+          <input
+            name="memberNumber"
+            defaultValue={m.memberNumber ?? ""}
+            className="border rounded-lg px-3 py-2 w-full"
+            inputMode="numeric"
+            pattern="^\d{8}$"
+            placeholder="8 digits"
+            required
+          />
+          <p className="text-xs text-gray-500 mt-1">Exactly 8 digits.</p>
+        </div>
 
         <div>
           <label className="block text-sm font-medium">First name</label>
@@ -75,7 +96,7 @@ export default async function EditMemberPage({ params }: { params: { id: string 
         </button>
       </form>
 
-      {/* Enable / Disable controls */}
+      {/* Enable/Disable controls */}
       <form
         action={`/api/admin/members/${m.id}`}
         method="POST"
@@ -83,12 +104,10 @@ export default async function EditMemberPage({ params }: { params: { id: string 
       >
         <input type="hidden" name="_method" value="PATCH" />
         <input type="hidden" name="redirect" value="/admin/members" />
-
         <div>
           <div className="font-medium">Account status</div>
           <div className="text-sm text-gray-600">Current: {m.status}</div>
         </div>
-
         {m.status === "active" ? (
           <button
             name="status"
@@ -107,9 +126,6 @@ export default async function EditMemberPage({ params }: { params: { id: string 
           </button>
         )}
       </form>
-
-      {/* Permanent delete intentionally removed.
-          Archival / hard delete will be handled later with policy + safeguards. */}
     </div>
   );
 }
