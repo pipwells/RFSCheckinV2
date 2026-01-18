@@ -27,7 +27,7 @@ export async function GET(_req: NextRequest, context: { params: Promise<Params> 
     where: { id, organisationId: orgId, isVisitor: false },
     select: {
       id: true,
-      firegroundNumber: true,
+      memberNumber: true,
       firstName: true,
       lastName: true,
       mobile: true,

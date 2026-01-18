@@ -20,19 +20,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.redirect(new URL("/admin/members/new?error=invalid", req.url), 303);
   }
 
-  const firegroundNumber = String(form.get("firegroundNumber") || "").trim();
+  const memberNumber = String(form.get("memberNumber") || "").trim();
   const firstName = String(form.get("firstName") || "").trim();
   const lastName = String(form.get("lastName") || "").trim();
   const mobile = String(form.get("mobile") || "").trim();
 
-  if (!firegroundNumber || !firstName || !lastName || !mobile) {
+  if (!memberNumber || !firstName || !lastName || !mobile) {
     return NextResponse.redirect(new URL("/admin/members/new?error=missing", req.url), 303);
   }
 
-  // Fireground Number: exactly 8 digits
-  if (!/^\d{8}$/.test(firegroundNumber)) {
+  // member Number: exactly 8 digits
+  if (!/^\d{8}$/.test(memberNumber)) {
     return NextResponse.redirect(
-      new URL("/admin/members/new?error=fireground_invalid", req.url),
+      new URL("/admin/members/new?error=member_invalid", req.url),
       303
     );
   }
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     await prisma.member.create({
       data: {
         organisationId: orgId,
-        firegroundNumber,
+        memberNumber,
         firstName,
         lastName,
         mobile,

@@ -27,12 +27,12 @@ export default async function NewMemberPage({
       {error && (
         <div className="rounded-lg bg-red-50 text-red-700 px-4 py-3 ring-1 ring-red-200">
           {error === "missing" && "All fields are required."}
-          {error === "fireground_invalid" &&
-            "Fireground Number must be exactly 8 digits."}
+          {error === "member_invalid" &&
+            "member Number must be exactly 8 digits."}
           {error === "mobile_invalid" &&
             "Mobile number is not a valid Australian mobile."}
           {error === "duplicate" &&
-            "A member with this Fireground Number or mobile already exists."}
+            "A member with this member Number or mobile already exists."}
           {error === "failed" && "Failed to create member."}
         </div>
       )}
@@ -44,10 +44,10 @@ export default async function NewMemberPage({
       >
         <div>
           <label className="block text-sm font-medium">
-            Fireground Number
+            member Number
           </label>
           <input
-            name="firegroundNumber"
+            name="memberNumber"
             required
             pattern="\d{8}"
             maxLength={8}

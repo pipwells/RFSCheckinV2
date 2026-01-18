@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 type MemberRow = {
   id: string;
-  firegroundNumber: string;
+  memberNumber: string;
   firstName: string;
   lastName: string;
   name: string;
@@ -28,7 +28,7 @@ async function getData(orgId: string): Promise<MemberRow[]> {
 
   return members.map((m) => ({
     id: m.id,
-    firegroundNumber: (m as any).firegroundNumber ?? "",
+    memberNumber: (m as any).memberNumber ?? "",
     firstName: m.firstName ?? "",
     lastName: m.lastName ?? "",
     name: `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim(),
@@ -102,7 +102,7 @@ export default async function MembersAdminPage({
                 <div className="font-semibold">
                   {row.name || "—"}{" "}
                   <span className="text-sm text-gray-500 ml-2">
-                    #{row.firegroundNumber || "—"}
+                    #{row.memberNumber || "—"}
                   </span>
                 </div>
                 <div className="text-sm text-gray-600">

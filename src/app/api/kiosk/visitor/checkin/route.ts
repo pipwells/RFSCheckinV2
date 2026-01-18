@@ -32,8 +32,8 @@ function normMobileAU(input: string | undefined | null): string | null {
   return digits; // fallback
 }
 
-function makeVisitorFireground(): string {
-  // Must satisfy Member.firegroundNumber required + unique per organisation.
+function makeVisitormember(): string {
+  // Must satisfy Member.memberNumber required + unique per organisation.
   // Keep it short-ish but collision-resistant.
   const ts = Date.now().toString(36).toUpperCase();
   const rnd = Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -71,22 +71,22 @@ export async function POST(req: NextRequest) {
 
     // Create visitor member if not found (or no mobile provided)
     if (!visitorMember) {
-      // Ensure we don't collide on firegroundNumber unique constraint
+      // Ensure we don't collide on memberNumber unique constraint
       // Retry a couple of times in the (very unlikely) event of collision.
-      let firegroundNumber = makeVisitorFireground();
+      let memberNumber = makeVisitormember();
       for (let i = 0; i < 3; i++) {
         const exists = await prisma.member.findFirst({
-          where: { organisationId: device.organisationId, firegroundNumber },
+          where: { organisationId: device.organisationId, memberNumber },
           select: { id: true },
         });
         if (!exists) break;
-        firegroundNumber = makeVisitorFireground();
+        memberNumber = makeVisitormember();
       }
 
       visitorMember = await prisma.member.create({
         data: {
           organisationId: device.organisationId,
-          firegroundNumber,
+          memberNumber,
           firstName,
           lastName: lastName || "Visitor",
           mobile: mobile,

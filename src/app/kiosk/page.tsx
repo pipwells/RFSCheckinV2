@@ -3,7 +3,7 @@
 /**
  * KIOSK PAGE
  * - Keyboard-wedge RFID input (keeps focus)
- * - Scan supports RFID tag / Fireground / Mobile (with ambiguity selection)
+ * - Scan supports RFID tag / member / Mobile (with ambiguity selection)
  * - Sidebar shows who is currently in station
  * - Checkout panel (uses existing /api/kiosk/checkout contract you already have wired)
  *
@@ -81,7 +81,7 @@ type AmbiguousCandidate = {
   id: string;
   firstName: string;
   lastName: string;
-  firegroundNumber: string;
+  memberNumber: string;
 };
 
 // -----------------------------
@@ -501,7 +501,7 @@ export default function KioskPage() {
                 <div className="flex items-end justify-between gap-3">
                   <div>
                     <div className="text-lg font-semibold">Member check-in</div>
-                    <div className="text-sm text-zinc-300">Scan RFID, enter Fireground No., or enter Mobile.</div>
+                    <div className="text-sm text-zinc-300">Scan RFID, enter member No., or enter Mobile.</div>
                   </div>
                   <div className="text-xs text-zinc-400">{working ? "Working..." : "Ready"}</div>
                 </div>
@@ -514,7 +514,7 @@ export default function KioskPage() {
                     if (e.key === "Enter") submitScan();
                   }}
                   className="mt-3 w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-3 text-lg tracking-wide outline-none focus:border-emerald-600"
-                  placeholder="RFID / Fireground / Mobile"
+                  placeholder="RFID / member / Mobile"
                   inputMode="text"
                   autoComplete="off"
                   spellCheck={false}
@@ -534,7 +534,7 @@ export default function KioskPage() {
                           <div className="font-semibold">
                             {m.firstName} {m.lastName}
                           </div>
-                          <div className="text-xs text-amber-200">Fireground: {m.firegroundNumber}</div>
+                          <div className="text-xs text-amber-200">member: {m.memberNumber}</div>
                         </button>
                       ))}
                     </div>

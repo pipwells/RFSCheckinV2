@@ -48,7 +48,7 @@ async function createSession(device: { organisationId: string; stationId: string
 /**
  * Kiosk scan supports:
  * - RFID tag (keyboard wedge value -> MemberTag.tagValue)
- * - Fireground number (digits)
+ * - member number (digits)
  * - Mobile number (AU) with ambiguity resolution
  */
 export async function POST(req: NextRequest) {
@@ -143,7 +143,7 @@ export async function POST(req: NextRequest) {
             status: "active",
             mobileNormalized: mobileNorm,
           },
-          select: { id: true, firstName: true, lastName: true, firegroundNumber: true },
+          select: { id: true, firstName: true, lastName: true, memberNumber: true },
           orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
           take: 10,
         });
@@ -182,16 +182,16 @@ export async function POST(req: NextRequest) {
     }
 
     // -----------------------------
-    // 6) Fireground path first, tag fallback (digits-only or short codes)
+    // 6) member path first, tag fallback (digits-only or short codes)
     // -----------------------------
-    const firegroundCandidate = raw.replace(/[^0-9]/g, "");
-    if (firegroundCandidate.length > 0) {
+    const memberCandidate = raw.replace(/[^0-9]/g, "");
+    if (memberCandidate.length > 0) {
       const member = await prisma.member.findFirst({
         where: {
           organisationId: device.organisationId,
           isVisitor: false,
           status: "active",
-          firegroundNumber: firegroundCandidate,
+          memberNumber: memberCandidate,
         },
         select: { id: true, firstName: true },
       });

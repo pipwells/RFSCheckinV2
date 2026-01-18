@@ -21,7 +21,7 @@ export async function GET(_req: NextRequest) {
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     select: {
       id: true,
-      firegroundNumber: true,
+      memberNumber: true,
       firstName: true,
       lastName: true,
       mobile: true,
@@ -42,18 +42,18 @@ export async function POST(req: NextRequest) {
   if (!orgId) return NextResponse.json({ error: "unauthorised" }, { status: 401 });
 
   const body = (await req.json().catch(() => ({}))) as {
-    firegroundNumber?: string;
+    memberNumber?: string;
     firstName?: string;
     lastName?: string;
     mobile?: string;
   };
 
-  const firegroundNumber = typeof body.firegroundNumber === "string" ? body.firegroundNumber.trim() : "";
+  const memberNumber = typeof body.memberNumber === "string" ? body.memberNumber.trim() : "";
   const firstName = typeof body.firstName === "string" ? body.firstName.trim() : "";
   const lastName = typeof body.lastName === "string" ? body.lastName.trim() : "";
   const mobile = typeof body.mobile === "string" ? body.mobile.trim() : "";
 
-  if (!firegroundNumber) return NextResponse.json({ error: "fireground_required" }, { status: 400 });
+  if (!memberNumber) return NextResponse.json({ error: "member_required" }, { status: 400 });
   if (!firstName) return NextResponse.json({ error: "first_required" }, { status: 400 });
   if (!lastName) return NextResponse.json({ error: "last_required" }, { status: 400 });
 
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     const created = await prisma.member.create({
       data: {
         organisationId: orgId,
-        firegroundNumber,
+        memberNumber,
         firstName,
         lastName,
         mobile: mobile || null,
