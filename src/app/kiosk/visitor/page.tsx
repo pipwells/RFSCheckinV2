@@ -24,12 +24,18 @@ const PURPOSE_OPTIONS = [
 type AgencyOption = (typeof AGENCY_OPTIONS)[number];
 type PurposeOption = (typeof PURPOSE_OPTIONS)[number];
 
-type WebkitWindow = Window & { webkitAudioContext?: typeof AudioContext };
+// Audio helpers (typed, Safari-safe)
+type AudioContextCtor = new () => AudioContext;
 
-function getAudioCtor(): typeof AudioContext | null {
+function getAudioCtor(): AudioContextCtor | null {
   if (typeof window === "undefined") return null;
-  const w = window as WebkitWindow;
-  return w.AudioContext ?? w.webkitAudioContext ?? null;
+
+  const g = globalThis as unknown as {
+    AudioContext?: AudioContextCtor;
+    webkitAudioContext?: AudioContextCtor;
+  };
+
+  return g.AudioContext ?? g.webkitAudioContext ?? null;
 }
 
 function makeCtx(): AudioContext | null {
