@@ -35,20 +35,14 @@ function getSessionOptions(): SessionOptions {
   };
 }
 
-type CookieStoreLike = {
-  get: (name: string) => { name: string; value: string } | undefined;
-  set: (name: string, value: string, options?: unknown) => void;
-};
-
 /**
  * Get (or create) the admin session.
  */
 export async function getAdminSession(): Promise<AdminSession> {
   const store = cookies();
-
-  // iron-session wants something CookieStore-ish; Next's cookies() matches at runtime.
-  const cookieStore = store as unknown as CookieStoreLike;
-
   const sessionOptions = getSessionOptions();
-  return getIronSession<{ user?: AdminUser }>(cookieStore, sessionOptions) as Promise<AdminSession>;
+
+  // Next's cookies() store matches what iron-session needs at runtime, but the TS types
+  // don't align across Next versions due to overloaded `set()` signatures.
+  return (await getIronSession<{ user?: AdminUser }>(store as unknown as any, sessionOptions)) as AdminSession;
 }
