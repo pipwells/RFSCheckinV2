@@ -1,5 +1,7 @@
+// src/lib/admin-session.ts
 import { getIronSession, type SessionOptions, type IronSession } from "iron-session";
 import { cookies as getCookies } from "next/headers";
+import type { CookieStore } from "next/dist/compiled/@edge-runtime/cookies";
 
 export type AdminUser = {
   id: string;
@@ -40,8 +42,7 @@ function getSessionOptions(): SessionOptions {
  * Get (or create) the admin session.
  */
 export async function getAdminSession(): Promise<AdminSession> {
-  const store = await getCookies();
+  const store = (await getCookies()) as unknown as CookieStore;
   const sessionOptions = getSessionOptions();
-  const session = await getIronSession<{ user?: AdminUser }>(store as any, sessionOptions);
-  return session as AdminSession;
+  return getIronSession<{ user?: AdminUser }>(store, sessionOptions);
 }

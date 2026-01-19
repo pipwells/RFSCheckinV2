@@ -1,5 +1,6 @@
 // src/app/admin/(app)/members/new/page.tsx
 import { getAdminSession } from "@/lib/admin-session";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -30,8 +31,7 @@ export default async function NewMemberPage({
           {error === "invalid" && "Invalid request."}
           {error === "member_invalid" && "Member number must be exactly 8 digits."}
           {error === "mobile_invalid" && "Mobile number is not a valid Australian mobile."}
-          {error === "duplicate" &&
-            "A member with this member number or mobile already exists."}
+          {error === "duplicate" && "A member with this member number or mobile already exists."}
           {error === "tag_duplicate" && "That RFID tag is already assigned."}
           {error === "failed" && "Failed to create member."}
         </div>
@@ -58,20 +58,12 @@ export default async function NewMemberPage({
 
         <div>
           <label className="block text-sm font-medium">First name</label>
-          <input
-            name="firstName"
-            required
-            className="mt-1 w-full rounded-lg border px-3 py-2"
-          />
+          <input name="firstName" required className="mt-1 w-full rounded-lg border px-3 py-2" />
         </div>
 
         <div>
           <label className="block text-sm font-medium">Last name</label>
-          <input
-            name="lastName"
-            required
-            className="mt-1 w-full rounded-lg border px-3 py-2"
-          />
+          <input name="lastName" required className="mt-1 w-full rounded-lg border px-3 py-2" />
         </div>
 
         <div>
@@ -94,15 +86,13 @@ export default async function NewMemberPage({
             placeholder="Scan tag now"
             autoComplete="off"
           />
-          <p className="text-xs text-gray-500 mt-1">
-            Click into this field, then scan the tag.
-          </p>
+          <p className="text-xs text-gray-500 mt-1">Click into this field, then scan the tag.</p>
         </div>
 
         <div className="flex justify-end gap-3 pt-2">
-          <a href="/admin/members" className="rounded-lg border px-4 py-2 text-sm">
+          <Link href="/admin/members" className="rounded-lg border px-4 py-2 text-sm">
             Cancel
-          </a>
+          </Link>
           <button
             type="submit"
             className="rounded-lg bg-black text-white px-4 py-2 text-sm hover:bg-gray-900"

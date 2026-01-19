@@ -1,3 +1,4 @@
+// src/app/kiosk/page.tsx
 "use client";
 
 /**
@@ -28,24 +29,44 @@ import { useRouter } from "next/navigation";
 // -----------------------------
 let audioCtx: AudioContext | null = null;
 
-function ensureAudio() {
+type WebkitWindow = Window & {
+  webkitAudioContext?: typeof AudioContext;
+};
+
+function ensureAudio(): AudioContext | null {
   if (typeof window === "undefined") return null;
-  if (!audioCtx) audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+
+  if (!audioCtx) {
+    const w = window as WebkitWindow;
+    const Ctor = w.AudioContext ?? w.webkitAudioContext;
+    if (!Ctor) return null;
+    audioCtx = new Ctor();
+  }
+
   return audioCtx;
 }
 
-async function tone(freq: number, ms: number, type: OscillatorType = "sine", gain = 0.05) {
+async function tone(
+  freq: number,
+  ms: number,
+  type: OscillatorType = "sine",
+  gain = 0.05
+) {
   const ctx = ensureAudio();
   if (!ctx) return;
+
   const osc = ctx.createOscillator();
   const g = ctx.createGain();
+
   osc.type = type;
   osc.frequency.value = freq;
   g.gain.value = gain;
+
   osc.connect(g);
   g.connect(ctx.destination);
+
   osc.start();
-  await new Promise((r) => setTimeout(r, ms));
+  await new Promise<void>((r) => setTimeout(r, ms));
   osc.stop();
 }
 
@@ -59,7 +80,7 @@ async function beepNegative() {
 }
 async function beepDouble() {
   await tone(1040, 90, "triangle", 0.08);
-  await new Promise((r) => setTimeout(r, 90));
+  await new Promise<void>((r) => setTimeout(r, 90));
   await tone(1040, 90, "triangle", 0.08);
 }
 
@@ -87,6 +108,18 @@ type AmbiguousCandidate = {
 // -----------------------------
 // [LANDMARK: helpers]
 // -----------------------------
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function getString(v: unknown): string | null {
+  return typeof v === "string" ? v : null;
+}
+
+function getBool(v: unknown): boolean | null {
+  return typeof v === "boolean" ? v : null;
+}
+
 function durationMins(aIso: string, bIso?: string) {
   const a = new Date(aIso).getTime();
   const b = bIso ? new Date(bIso).getTime() : Date.now();
@@ -111,6 +144,131 @@ function roundMinutesTo10(mins: number) {
   return Math.max(0, Math.round(mins / 10) * 10);
 }
 
+function parseCategoriesPayload(payload: unknown): ParentCat[] {
+  // API may return an array, or { categories: [...] }
+  const arr: unknown[] | null = Array.isArray(payload)
+    ? payload
+    : isRecord(payload) && Array.isArray(payload.categories)
+      ? (payload.categories as unknown[])
+      : null;
+
+  if (!arr) return [];
+
+  const out: ParentCat[] = [];
+
+  for (const item of arr) {
+    if (!isRecord(item)) continue;
+
+    const id = getString(item.id);
+    const name = getString(item.name);
+    const code = getString(item.code);
+    if (!id || !name || !code) continue;
+
+    const childrenRaw = Array.isArray(item.children) ? (item.children as unknown[]) : [];
+    const children: ChildCat[] = [];
+
+    for (const ch of childrenRaw) {
+      if (!isRecord(ch)) continue;
+      const chId = getString(ch.id);
+      const chName = getString(ch.name);
+      const chCode = getString(ch.code);
+      if (!chId || !chName || !chCode) continue;
+      children.push({ id: chId, name: chName, code: chCode });
+    }
+
+    // Defensive: ensure at least one child so checkout always has a selectable category.
+    const safeChildren =
+      children.length > 0 ? children : [{ id, name, code }];
+
+    out.push({ id, name, code, children: safeChildren });
+  }
+
+  return out;
+}
+
+function findFirstArrayInRecord(obj: Record<string, unknown>): unknown[] | null {
+  for (const v of Object.values(obj)) {
+    if (Array.isArray(v)) return v;
+  }
+  return null;
+}
+
+function parseActivePayload(payload: unknown): unknown[] {
+  // Try common shapes:
+  // - array
+  // - { sessions: array }
+  // - { sessions: { ... } } (values contain array)
+  // - { ... } (first property that is an array)
+  if (Array.isArray(payload)) return payload;
+
+  if (isRecord(payload)) {
+    const sessions = payload.sessions;
+
+    if (Array.isArray(sessions)) return sessions;
+
+    if (isRecord(sessions)) {
+      const arr = findFirstArrayInRecord(sessions);
+      if (arr) return arr;
+      // sometimes sessions is an object keyed by id; treat values as array-ish
+      const values = Object.values(sessions);
+      if (values.length > 0) return values;
+    }
+
+    const anyArr = findFirstArrayInRecord(payload);
+    if (anyArr) return anyArr;
+  }
+
+  return [];
+}
+
+function parseActiveEntry(raw: unknown): ActiveEntry | null {
+  if (!isRecord(raw)) return null;
+
+  // Derive an ID similarly to original logic
+  const rawId =
+    raw.id ??
+    raw.sessionId ??
+    raw.session_id ??
+    (isRecord(raw.member) ? raw.member.id : undefined) ??
+    raw.memberId ??
+    `${isRecord(raw.member) ? (getString(raw.member.id) ?? "m") : "m"}:${
+      getString(raw.startTime) ?? getString(raw.startedAt) ?? getString(raw.start) ?? "t"
+    }`;
+
+  const id = getString(rawId) ?? String(rawId);
+  if (!id) return null;
+
+  const memberId =
+    getString(raw.memberId) ??
+    (isRecord(raw.member) ? getString(raw.member.id) : null) ??
+    "";
+
+  const firstName =
+    getString(raw.firstName) ??
+    (isRecord(raw.member) ? getString(raw.member.firstName) : null) ??
+    (isRecord(raw.member) ? getString(raw.member.name) : null) ??
+    "Guest";
+
+  const isVisitor =
+    getBool(raw.isVisitor) ??
+    (isRecord(raw.member) ? getBool(raw.member.isVisitor) : null) ??
+    false;
+
+  const startTime =
+    getString(raw.startTime) ??
+    getString(raw.startedAt) ??
+    getString(raw.start) ??
+    new Date().toISOString();
+
+  return {
+    id,
+    memberId,
+    firstName,
+    isVisitor,
+    startTime,
+  };
+}
+
 // -----------------------------
 // [LANDMARK: data fetchers]
 // -----------------------------
@@ -118,19 +276,8 @@ async function fetchCategories(): Promise<ParentCat[]> {
   try {
     const res = await fetch("/api/kiosk/categories", { cache: "no-store" });
     if (!res.ok) return [];
-    const data = await res.json();
-    const cats: ParentCat[] = Array.isArray(data) ? data : data.categories ?? [];
-
-    // Defensive: ensure at least one child so checkout always has a selectable category.
-    return cats.map((c: any) => ({
-      id: c.id,
-      name: c.name,
-      code: c.code,
-      children:
-        Array.isArray(c.children) && c.children.length > 0
-          ? c.children.map((ch: any) => ({ id: ch.id, name: ch.name, code: ch.code }))
-          : [{ id: c.id, name: c.name, code: c.code }],
-    }));
+    const data: unknown = await res.json();
+    return parseCategoriesPayload(data);
   } catch {
     return [];
   }
@@ -140,32 +287,17 @@ async function fetchActive(): Promise<ActiveEntry[]> {
   try {
     const res = await fetch("/api/kiosk/active", { cache: "no-store" });
     if (!res.ok) return [];
-    const data = await res.json();
+    const data: unknown = await res.json();
 
-    let sessionsRaw: any[] = [];
-    if (Array.isArray(data)) sessionsRaw = data;
-    else if (Array.isArray(data?.sessions)) sessionsRaw = data.sessions;
-    else if (data?.sessions && typeof data.sessions === "object") sessionsRaw = Object.values(data.sessions);
-    else if (data && typeof data === "object") {
-      const maybeArray = Object.values(data).find((v) => Array.isArray(v));
-      if (Array.isArray(maybeArray)) sessionsRaw = maybeArray as any[];
+    const sessionsRaw = parseActivePayload(data);
+    const out: ActiveEntry[] = [];
+
+    for (const s of sessionsRaw) {
+      const parsed = parseActiveEntry(s);
+      if (parsed) out.push(parsed);
     }
 
-    return (sessionsRaw || []).map((s: any) => {
-      const rawId =
-        s.id ??
-        s.sessionId ??
-        s.session_id ??
-        `${s.member?.id ?? s.memberId ?? "m"}:${s.startTime ?? s.startedAt ?? s.start ?? "t"}`;
-
-      return {
-        id: String(rawId),
-        memberId: s.memberId ?? s.member?.id ?? "",
-        firstName: s.firstName ?? s.member?.firstName ?? s.member?.name ?? "Guest",
-        isVisitor: !!(s.isVisitor ?? s.member?.isVisitor),
-        startTime: s.startTime ?? s.startedAt ?? s.start ?? new Date().toISOString(),
-      } as ActiveEntry;
-    });
+    return out;
   } catch {
     return [];
   }
@@ -218,7 +350,6 @@ export default function KioskPage() {
     }, 4000);
 
     const tick = window.setInterval(() => {
-      // keep durations live
       setActive((prev) => [...prev]);
     }, 15000);
 
@@ -274,31 +405,35 @@ export default function KioskPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ identifier: raw }),
       });
-      const data = await res.json();
+      const data: unknown = await res.json();
 
-      if (data.error === "no_kiosk" || data.error === "invalid_kiosk") {
+      if (isRecord(data) && (data.error === "no_kiosk" || data.error === "invalid_kiosk")) {
         await beepNegative();
         alert("This device is not registered as a kiosk.");
         return;
       }
 
-      if (data.error === "disabled" || data.status === "unknown") {
+      if (isRecord(data) && (data.error === "disabled" || data.status === "unknown")) {
         await beepNegative();
         setEntry("");
         return;
       }
 
-      if (data.status === "ambiguous" && Array.isArray(data.candidates)) {
+      if (
+        isRecord(data) &&
+        data.status === "ambiguous" &&
+        Array.isArray(data.candidates)
+      ) {
         setAmbiguous(data.candidates as AmbiguousCandidate[]);
         setEntry("");
         return;
       }
 
-      if (data.status === "already_in") {
+      if (isRecord(data) && data.status === "already_in") {
         setCheckoutSession({
-          sessionId: String(data.sessionId),
-          firstName: data.firstName ?? "Member",
-          startISO: String(data.startTime),
+          sessionId: String(data.sessionId ?? ""),
+          firstName: getString(data.firstName) ?? "Member",
+          startISO: String(data.startTime ?? ""),
           isVisitor: false,
         });
         setSelectedCategoryId(null);
@@ -306,9 +441,9 @@ export default function KioskPage() {
         return;
       }
 
-      if (data.status === "checked_in") {
+      if (isRecord(data) && data.status === "checked_in") {
         await beepPositive();
-        setGreetName(data.firstName ?? "Member");
+        setGreetName(getString(data.firstName) ?? "Member");
         setEntry("");
         setTimeout(async () => setActive(await fetchActive()), 250);
         return;
@@ -316,7 +451,7 @@ export default function KioskPage() {
 
       await beepNegative();
       setEntry("");
-    } catch (e) {
+    } catch (e: unknown) {
       console.error("scan error", e);
       await beepNegative();
     } finally {
@@ -336,41 +471,41 @@ export default function KioskPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ memberId }),
       });
-      const data = await res.json();
+      const data: unknown = await res.json();
 
       setAmbiguous(null);
 
-      if (data.error === "no_kiosk" || data.error === "invalid_kiosk") {
+      if (isRecord(data) && (data.error === "no_kiosk" || data.error === "invalid_kiosk")) {
         await beepNegative();
         alert("This device is not registered as a kiosk.");
         return;
       }
 
-      if (data.error === "disabled" || data.status === "unknown") {
+      if (isRecord(data) && (data.error === "disabled" || data.status === "unknown")) {
         await beepNegative();
         return;
       }
 
-      if (data.status === "already_in") {
+      if (isRecord(data) && data.status === "already_in") {
         setCheckoutSession({
-          sessionId: String(data.sessionId),
-          firstName: data.firstName ?? "Member",
-          startISO: String(data.startTime),
+          sessionId: String(data.sessionId ?? ""),
+          firstName: getString(data.firstName) ?? "Member",
+          startISO: String(data.startTime ?? ""),
           isVisitor: false,
         });
         setSelectedCategoryId(null);
         return;
       }
 
-      if (data.status === "checked_in") {
+      if (isRecord(data) && data.status === "checked_in") {
         await beepPositive();
-        setGreetName(data.firstName ?? "Member");
+        setGreetName(getString(data.firstName) ?? "Member");
         setTimeout(async () => setActive(await fetchActive()), 250);
         return;
       }
 
       await beepNegative();
-    } catch (e) {
+    } catch (e: unknown) {
       console.error("scan-as error", e);
       await beepNegative();
     } finally {
@@ -398,7 +533,6 @@ export default function KioskPage() {
   async function confirmCheckout() {
     if (!checkoutSession || working) return;
 
-    // Require activity selection (UI also enforces this)
     if (!selectedCategoryId) {
       await beepNegative();
       return;
@@ -423,9 +557,9 @@ export default function KioskPage() {
         }),
       });
 
-      const data = await res.json();
+      const data: unknown = await res.json();
 
-      if (data?.status === "checked_out") {
+      if (isRecord(data) && data.status === "checked_out") {
         await beepDouble();
         setCheckoutSession(null);
         setSelectedCategoryId(null);
@@ -434,7 +568,7 @@ export default function KioskPage() {
       }
 
       await beepNegative();
-    } catch (e) {
+    } catch (e: unknown) {
       console.error("checkout error", e);
       await beepNegative();
     } finally {
@@ -461,7 +595,9 @@ export default function KioskPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Sidebar */}
           <div className="lg:col-span-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-            <div className="mb-2 text-sm font-semibold text-zinc-200">Currently in station</div>
+            <div className="mb-2 text-sm font-semibold text-zinc-200">
+              Currently in station
+            </div>
 
             <div className="space-y-2">
               {active
@@ -474,14 +610,20 @@ export default function KioskPage() {
                   >
                     <div className="flex items-center justify-between">
                       <div className="font-medium">{a.firstName}</div>
-                      <div className="text-xs text-zinc-300">{fmtDuration(durationMins(a.startTime))}</div>
+                      <div className="text-xs text-zinc-300">
+                        {fmtDuration(durationMins(a.startTime))}
+                      </div>
                     </div>
-                    <div className="text-xs text-zinc-400">Checked in: {fmtClock(new Date(a.startTime))}</div>
+                    <div className="text-xs text-zinc-400">
+                      Checked in: {fmtClock(new Date(a.startTime))}
+                    </div>
                   </button>
                 ))}
 
               <div className="pt-3 mt-3 border-t border-zinc-800">
-                <div className="mb-2 text-sm font-semibold text-zinc-200">Visitors</div>
+                <div className="mb-2 text-sm font-semibold text-zinc-200">
+                  Visitors
+                </div>
                 {active
                   .filter((a) => !!a.isVisitor)
                   .map((a) => (
@@ -492,9 +634,13 @@ export default function KioskPage() {
                     >
                       <div className="flex items-center justify-between">
                         <div className="font-medium">{a.firstName}</div>
-                        <div className="text-xs text-zinc-300">{fmtDuration(durationMins(a.startTime))}</div>
+                        <div className="text-xs text-zinc-300">
+                          {fmtDuration(durationMins(a.startTime))}
+                        </div>
                       </div>
-                      <div className="text-xs text-zinc-400">Checked in: {fmtClock(new Date(a.startTime))}</div>
+                      <div className="text-xs text-zinc-400">
+                        Checked in: {fmtClock(new Date(a.startTime))}
+                      </div>
                     </button>
                   ))}
               </div>
@@ -509,9 +655,13 @@ export default function KioskPage() {
                 <div className="flex items-end justify-between gap-3">
                   <div>
                     <div className="text-lg font-semibold">Member check-in</div>
-                    <div className="text-sm text-zinc-300">Scan RFID, enter Member No., or enter Mobile.</div>
+                    <div className="text-sm text-zinc-300">
+                      Scan RFID, enter Member No., or enter Mobile.
+                    </div>
                   </div>
-                  <div className="text-xs text-zinc-400">{working ? "Working..." : "Ready"}</div>
+                  <div className="text-xs text-zinc-400">
+                    {working ? "Working..." : "Ready"}
+                  </div>
                 </div>
 
                 <input
@@ -531,7 +681,9 @@ export default function KioskPage() {
                 {/* Ambiguous mobile selection */}
                 {ambiguous && ambiguous.length > 0 && (
                   <div className="mt-3 rounded-md border border-amber-700 bg-amber-900/20 p-3">
-                    <div className="text-sm font-semibold text-amber-100">Mobile is shared — select member</div>
+                    <div className="text-sm font-semibold text-amber-100">
+                      Mobile is shared — select member
+                    </div>
                     <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {ambiguous.map((m) => (
                         <button
@@ -542,7 +694,9 @@ export default function KioskPage() {
                           <div className="font-semibold">
                             {m.firstName} {m.lastName}
                           </div>
-                          <div className="text-xs text-amber-200">Member No.: {m.memberNumber}</div>
+                          <div className="text-xs text-amber-200">
+                            Member No.: {m.memberNumber}
+                          </div>
                         </button>
                       ))}
                     </div>
@@ -551,29 +705,31 @@ export default function KioskPage() {
 
                 {/* Keypad */}
                 <div className="mt-4 grid grid-cols-3 gap-2">
-                  {["1", "2", "3", "4", "5", "6", "7", "8", "9", "CLR", "0", "OK"].map((k) => (
-                    <button
-                      key={k}
-                      onClick={() => {
-                        if (working) return;
-                        if (k === "CLR") {
-                          setEntry("");
-                          setAmbiguous(null);
+                  {["1", "2", "3", "4", "5", "6", "7", "8", "9", "CLR", "0", "OK"].map(
+                    (k) => (
+                      <button
+                        key={k}
+                        onClick={() => {
+                          if (working) return;
+                          if (k === "CLR") {
+                            setEntry("");
+                            setAmbiguous(null);
+                            entryRef.current?.focus();
+                            return;
+                          }
+                          if (k === "OK") {
+                            submitScan();
+                            return;
+                          }
+                          setEntry((prev) => `${prev}${k}`);
                           entryRef.current?.focus();
-                          return;
-                        }
-                        if (k === "OK") {
-                          submitScan();
-                          return;
-                        }
-                        setEntry((prev) => `${prev}${k}`);
-                        entryRef.current?.focus();
-                      }}
-                      className="rounded-md border border-zinc-800 bg-zinc-950/60 hover:bg-zinc-950 px-3 py-4 text-lg font-semibold"
-                    >
-                      {k}
-                    </button>
-                  ))}
+                        }}
+                        className="rounded-md border border-zinc-800 bg-zinc-950/60 hover:bg-zinc-950 px-3 py-4 text-lg font-semibold"
+                      >
+                        {k}
+                      </button>
+                    )
+                  )}
                 </div>
               </div>
             )}
@@ -583,7 +739,9 @@ export default function KioskPage() {
               <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-lg font-semibold">Checkout: {checkoutSession.firstName}</div>
+                    <div className="text-lg font-semibold">
+                      Checkout: {checkoutSession.firstName}
+                    </div>
                     <div className="text-sm text-zinc-300">
                       Session duration: {fmtDuration(durationMins(checkoutSession.startISO))}
                     </div>
@@ -646,7 +804,9 @@ export default function KioskPage() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-lg font-semibold">Visitor check-in</div>
-                  <div className="text-sm text-zinc-300">Sign in visitors and contractors.</div>
+                  <div className="text-sm text-zinc-300">
+                    Sign in visitors and contractors.
+                  </div>
                 </div>
                 <button
                   onClick={() => router.push("/kiosk/visitor")}

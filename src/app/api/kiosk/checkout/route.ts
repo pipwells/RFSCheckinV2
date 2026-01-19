@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireKiosk } from "@/lib/kioskAuth";
+import type { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -40,25 +41,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
   }
 
-  const sessionId = String(body.sessionId || "").trim();
+  const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
   if (!sessionId) return NextResponse.json({ error: "missing_sessionId" }, { status: 400 });
 
   const end = body.endTime ? new Date(body.endTime) : new Date();
-  if (Number.isNaN(end.getTime())) return NextResponse.json({ error: "invalid_endTime" }, { status: 400 });
+  if (Number.isNaN(end.getTime())) {
+    return NextResponse.json({ error: "invalid_endTime" }, { status: 400 });
+  }
 
   try {
-    // Load session scoped to this kiosk (org + station)
     const session = await prisma.session.findFirst({
       where: {
         id: sessionId,
         organisationId: device.organisationId,
         stationId: device.stationId,
       },
-      select: {
-        id: true,
-        status: true,
-        startTime: true,
-      },
+      select: { id: true, status: true, startTime: true },
     });
 
     if (!session) return NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -67,36 +65,36 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ status: "already_closed" }, { status: 200 });
     }
 
-    // Compute duration in minutes (authoritative from DB startTime)
-    const computed = Math.max(0, Math.round((end.getTime() - session.startTime.getTime()) / 60000));
+    const computed = Math.max(
+      0,
+      Math.round((end.getTime() - session.startTime.getTime()) / 60000)
+    );
+
     const provided = safeInt(body.minutes);
-    const minutes = provided !== null ? Math.min(Math.max(provided, 0), computed + 5) : computed; // small tolerance
+    const minutes =
+      provided !== null ? Math.min(Math.max(provided, 0), computed + 5) : computed;
 
     const tasksIn = Array.isArray(body.tasks) ? body.tasks : [];
     const categoryIds = Array.from(
       new Set(tasksIn.map((t) => String(t.categoryId || "").trim()).filter(Boolean))
     );
 
-    // Preload categories for snapshots (scoped to org)
-    const cats: CategoryRow[] = categoryIds.length
-      ? ((await prisma.category.findMany({
-          where: { organisationId: device.organisationId, id: { in: categoryIds } },
-          select: { id: true, code: true, name: true },
-        })) as CategoryRow[])
-      : [];
+    const cats: CategoryRow[] =
+      categoryIds.length > 0
+        ? await prisma.category.findMany({
+            where: { organisationId: device.organisationId, id: { in: categoryIds } },
+            select: { id: true, code: true, name: true },
+          })
+        : [];
 
-    const catMap = new Map<string, CategoryRow>(cats.map((c: CategoryRow) => [c.id, c]));
+    const catMap = new Map<string, CategoryRow>(cats.map((c) => [c.id, c]));
 
-    // Allocate minutes across tasks (even split)
     const taskCount = categoryIds.length;
     const perTask = taskCount > 0 ? Math.max(0, Math.floor(minutes / taskCount)) : 0;
     const remainder = taskCount > 0 ? minutes - perTask * taskCount : 0;
 
-    // Build transactional operations (no callback param => no implicit any)
-    const ops: any[] = [];
-
-    ops.push(
-      prisma.session.update({
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await tx.session.update({
         where: { id: session.id },
         data: {
           endTime: end,
@@ -105,14 +103,14 @@ export async function POST(req: NextRequest) {
           status: "closed",
           editLevel: "self",
         },
-      })
-    );
+      });
 
-    if (taskCount > 0) {
-      categoryIds.forEach((categoryId, idx) => {
-        const c = catMap.get(categoryId);
-        ops.push(
-          prisma.sessionTask.create({
+      if (taskCount > 0) {
+        for (let idx = 0; idx < categoryIds.length; idx++) {
+          const categoryId = categoryIds[idx];
+          const c = catMap.get(categoryId);
+
+          await tx.sessionTask.create({
             data: {
               sessionId: session.id,
               categoryId,
@@ -121,15 +119,13 @@ export async function POST(req: NextRequest) {
               categoryCodeSnapshot: c?.code ?? "",
               categoryNameSnapshot: c?.name ?? "",
             },
-          })
-        );
-      });
-    }
-
-    await prisma.$transaction(ops);
+          });
+        }
+      }
+    });
 
     return NextResponse.json({ status: "checked_out", sessionId: session.id });
-  } catch (err) {
+  } catch (err: unknown) {
     console.error("kiosk checkout error", err);
     return NextResponse.json({ error: "server_error" }, { status: 500 });
   }

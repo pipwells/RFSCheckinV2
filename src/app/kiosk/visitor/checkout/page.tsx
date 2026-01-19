@@ -4,7 +4,38 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-const PURPOSE_OPTIONS = ["Meeting Guest", "Administration", "Maintenance", "Interview", "Other"] as const;
+const PURPOSE_OPTIONS = [
+  "Meeting Guest",
+  "Administration",
+  "Maintenance",
+  "Interview",
+  "Other",
+] as const;
+
+type PurposeOption = (typeof PURPOSE_OPTIONS)[number];
+
+type SessionApiResponse = {
+  id: string;
+  status: string;
+  startTime: string | null;
+  endTime: string | null;
+  memberId: string;
+  firstName: string;
+  lastName: string;
+  isVisitor: boolean;
+  visitorAgency: string | null;
+  visitorPurpose: string | null;
+};
+
+type JsonObject = Record<string, unknown>;
+
+function isRecord(v: unknown): v is JsonObject {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function getString(v: unknown): string | null {
+  return typeof v === "string" ? v : null;
+}
 
 function pad2(n: number) {
   return String(n).padStart(2, "0");
@@ -35,24 +66,66 @@ function timeDisplayFromDigits(raw: string) {
   return `${p.slice(0, 2)}:${p.slice(2)}`;
 }
 
-type SessionApiResponse = {
-  id: string;
-  status: string;
-  startTime: string | null;
-  endTime: string | null;
-  memberId: string;
-  firstName: string;
-  lastName: string;
-  isVisitor: boolean;
-  visitorAgency: string | null;
-  visitorPurpose: string | null;
-};
+// Audio helpers (typed, no any)
+type WebkitWindow = Window & { webkitAudioContext?: typeof AudioContext };
+
+function getAudioCtor(): typeof AudioContext | null {
+  const w = window as WebkitWindow;
+  return w.AudioContext ?? w.webkitAudioContext ?? null;
+}
+
+function beepShortSuccess() {
+  try {
+    const Ctor = getAudioCtor();
+    if (!Ctor) return;
+
+    const ctx = new Ctor();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+
+    o.type = "sine";
+    o.frequency.value = 880;
+
+    o.connect(g);
+    g.connect(ctx.destination);
+
+    o.start();
+    o.stop(ctx.currentTime + 0.14);
+  } catch {
+    // ignore
+  }
+}
+
+function parseSessionResponse(raw: unknown): Partial<SessionApiResponse> & { error?: string } {
+  if (!isRecord(raw)) return {};
+
+  const out: Partial<SessionApiResponse> & { error?: string } = {};
+
+  const error = getString(raw.error);
+  if (error) out.error = error;
+
+  const firstName = getString(raw.firstName);
+  if (firstName !== null) out.firstName = firstName;
+
+  const lastName = getString(raw.lastName);
+  if (lastName !== null) out.lastName = lastName;
+
+  const startTime = raw.startTime === null ? null : getString(raw.startTime);
+  if (startTime !== null || raw.startTime === null) out.startTime = startTime;
+
+  const endTime = raw.endTime === null ? null : getString(raw.endTime);
+  if (endTime !== null || raw.endTime === null) out.endTime = endTime;
+
+  const visitorPurpose = raw.visitorPurpose === null ? null : getString(raw.visitorPurpose);
+  if (visitorPurpose !== null || raw.visitorPurpose === null) out.visitorPurpose = visitorPurpose;
+
+  return out;
+}
 
 export default function VisitorCheckoutPage() {
   const router = useRouter();
   const params = useSearchParams();
 
-  // Accept multiple param names for robustness
   const sid =
     params.get("sessionId") ||
     params.get("sid") ||
@@ -62,14 +135,13 @@ export default function VisitorCheckoutPage() {
 
   const [firstName, setFirstName] = useState("Visitor");
   const [lastName, setLastName] = useState("");
-  const [purposeSel, setPurposeSel] = useState<(typeof PURPOSE_OPTIONS)[number] | "">("");
+  const [purposeSel, setPurposeSel] = useState<PurposeOption | "">("");
   const [purposeOther, setPurposeOther] = useState("");
   const [startTime, setStartTime] = useState<Date | null>(null);
   const [endTime, setEndTime] = useState<Date | null>(new Date());
   const [err, setErr] = useState<string>("");
   const [busy, setBusy] = useState(false);
 
-  // time editor
   const [editing, setEditing] = useState<null | "start" | "end">(null);
   const [timeEntry, setTimeEntry] = useState("");
   const [timeError, setTimeError] = useState("");
@@ -78,7 +150,11 @@ export default function VisitorCheckoutPage() {
 
   function editorDateLabel() {
     const d = addDays(startOfDay(baseDate), dateOffset);
-    return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+    return d.toLocaleDateString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
   }
 
   function canNextDay() {
@@ -158,10 +234,10 @@ export default function VisitorCheckoutPage() {
     setEditing(null);
   }
 
-  const purposeValue = useMemo(
-    () => (purposeSel === "Other" ? purposeOther.trim() : (purposeSel || "").trim()),
-    [purposeSel, purposeOther]
-  );
+  const purposeValue = useMemo(() => {
+    const v = purposeSel === "Other" ? purposeOther.trim() : (purposeSel || "").trim();
+    return v;
+  }, [purposeSel, purposeOther]);
 
   useEffect(() => {
     let ignore = false;
@@ -179,10 +255,11 @@ export default function VisitorCheckoutPage() {
           cache: "no-store",
         });
 
-        const d = (await r.json().catch(() => ({}))) as Partial<SessionApiResponse> & { error?: string };
+        const raw: unknown = await r.json().catch(() => ({}));
+        const d = parseSessionResponse(raw);
 
         if (!r.ok) {
-          setErr(d?.error || "Failed to load session");
+          setErr(d.error || "Failed to load session");
           return;
         }
         if (ignore) return;
@@ -194,8 +271,9 @@ export default function VisitorCheckoutPage() {
         setEndTime(new Date());
 
         const p = d.visitorPurpose || "";
-        if (PURPOSE_OPTIONS.includes(p as any)) setPurposeSel(p as any);
-        else if (p) {
+        if ((PURPOSE_OPTIONS as readonly string[]).includes(p)) {
+          setPurposeSel(p as PurposeOption);
+        } else if (p) {
           setPurposeSel("Other");
           setPurposeOther(p);
         }
@@ -239,29 +317,17 @@ export default function VisitorCheckoutPage() {
         }),
       });
 
-      const data = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean };
+      const raw: unknown = await res.json().catch(() => ({}));
+      const data = isRecord(raw)
+        ? { error: getString(raw.error), ok: typeof raw.ok === "boolean" ? raw.ok : undefined }
+        : {};
 
-      if (!res.ok || data?.error) {
-        setErr(`Checkout failed: ${data?.error || "server_error"}`);
+      if (!res.ok || data.error) {
+        setErr(`Checkout failed: ${data.error || "server_error"}`);
         return;
       }
 
-      // quick success tone
-      try {
-        const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
-        if (AC) {
-          const ctx = new AC();
-          const o = ctx.createOscillator();
-          const g = ctx.createGain();
-          o.type = "sine";
-          o.frequency.value = 880;
-          o.connect(g);
-          g.connect(ctx.destination);
-          o.start();
-          o.stop(ctx.currentTime + 0.14);
-        }
-      } catch {}
-
+      beepShortSuccess();
       router.push("/kiosk");
     } catch {
       setErr("Network error.");
@@ -279,14 +345,17 @@ export default function VisitorCheckoutPage() {
         <h1 className="text-3xl font-semibold mb-2">Visitor checkout</h1>
         <p className="text-gray-600 mb-4">Thanks for your time, {fullName || "Visitor"}.</p>
 
-        {/* Times */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="p-4 rounded-2xl ring-1 ring-gray-300 shadow">
             <div className="text-sm text-gray-600">Checked in</div>
             <div className="text-3xl font-mono">{startTime ? fmtHM(startTime) : "--:--"}</div>
             <div className="text-sm text-gray-600">
               {startTime
-                ? startTime.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })
+                ? startTime.toLocaleDateString(undefined, {
+                    weekday: "short",
+                    day: "numeric",
+                    month: "short",
+                  })
                 : "—"}
             </div>
             <div className="mt-2">
@@ -305,7 +374,11 @@ export default function VisitorCheckoutPage() {
             <div className="text-3xl font-mono">{endTime ? fmtHM(endTime) : "--:--"}</div>
             <div className="text-sm text-gray-600">
               {endTime
-                ? endTime.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })
+                ? endTime.toLocaleDateString(undefined, {
+                    weekday: "short",
+                    day: "numeric",
+                    month: "short",
+                  })
                 : "—"}
             </div>
             <div className="mt-2 flex items-center gap-2">
@@ -329,7 +402,6 @@ export default function VisitorCheckoutPage() {
 
         <div className="text-center mt-3 text-lg text-gray-800">Duration: {dur}</div>
 
-        {/* Purpose */}
         <div className="mt-6">
           <label className="block text-sm text-gray-600 mb-1">Purpose of visit</label>
           <div className="flex flex-wrap gap-2">
@@ -338,7 +410,9 @@ export default function VisitorCheckoutPage() {
                 key={opt}
                 type="button"
                 onClick={() => setPurposeSel(opt)}
-                className={`px-4 py-2 rounded-xl ring-1 shadow ${purposeSel === opt ? "ring-blue-500" : "ring-gray-300"}`}
+                className={`px-4 py-2 rounded-xl ring-1 shadow ${
+                  purposeSel === opt ? "ring-blue-500" : "ring-gray-300"
+                }`}
               >
                 {opt}
               </button>
@@ -364,7 +438,7 @@ export default function VisitorCheckoutPage() {
             type="button"
             onClick={submit}
             disabled={busy}
-            className="px-6 py-3 rounded-2xl shadow text-white"
+            className="px-6 py-3 rounded-2xl shadow text-white disabled:opacity-60"
             style={{ backgroundColor: "#5093eb" }}
           >
             {busy ? "Saving…" : "Confirm checkout"}
@@ -372,11 +446,12 @@ export default function VisitorCheckoutPage() {
         </div>
       </div>
 
-      {/* Editor overlay */}
       {editing && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md">
-            <div className="text-xl mb-4">Edit {editing === "start" ? "check-in" : "checkout"} time (24-hour)</div>
+            <div className="text-xl mb-4">
+              Edit {editing === "start" ? "check-in" : "checkout"} time (24-hour)
+            </div>
 
             <div className="flex items-center justify-center gap-3 mb-3">
               <button
@@ -398,7 +473,9 @@ export default function VisitorCheckoutPage() {
               </button>
             </div>
 
-            <div className="text-center text-5xl font-mono tracking-widest">{timeDisplayFromDigits(timeEntry)}</div>
+            <div className="text-center text-5xl font-mono tracking-widest">
+              {timeDisplayFromDigits(timeEntry)}
+            </div>
             {timeError && <div className="text-center text-red-600">{timeError}</div>}
 
             <div className="grid grid-cols-3 gap-3 my-4">
@@ -449,7 +526,9 @@ export default function VisitorCheckoutPage() {
             </div>
 
             <div className="text-center text-sm text-gray-600 pt-2">
-              {editing === "start" ? "Check-in cannot be in the future." : "Checkout may be up to 6 hours in the future."}
+              {editing === "start"
+                ? "Check-in cannot be in the future."
+                : "Checkout may be up to 6 hours in the future."}
             </div>
           </div>
         </div>

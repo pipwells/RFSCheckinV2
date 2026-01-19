@@ -19,7 +19,7 @@ export default function InviteKioskForm({ stations }: { stations: StationItem[] 
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<InviteResponse | null>(null);
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
     setError(null);
@@ -43,8 +43,9 @@ export default function InviteKioskForm({ stations }: { stations: StationItem[] 
       }
 
       setResult({ phraseDisplay: data.phraseDisplay, expiresAt: data.expiresAt });
-    } catch (err: any) {
-      setError(err?.message ?? "Failed to generate invite");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to generate invite";
+      setError(msg);
     } finally {
       setBusy(false);
     }

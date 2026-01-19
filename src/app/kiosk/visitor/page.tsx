@@ -1,85 +1,119 @@
 // src/app/kiosk/visitor/page.tsx
-'use client';
+"use client";
 
-import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
 const AGENCY_OPTIONS = [
-  'RFS Representative - Sutherland Fire Control Centre',
-  'RFS - Group Officer',
-  'Council',
-  'Contractor',
-  'RFSA Representative',
-  'Other',
+  "RFS Representative - Sutherland Fire Control Centre",
+  "RFS - Group Officer",
+  "Council",
+  "Contractor",
+  "RFSA Representative",
+  "Other",
 ] as const;
 
-const PURPOSE_OPTIONS = ['Meeting Guest', 'Administration', 'Maintenance', 'Interview', 'Other'] as const;
+const PURPOSE_OPTIONS = [
+  "Meeting Guest",
+  "Administration",
+  "Maintenance",
+  "Interview",
+  "Other",
+] as const;
 
-/* Tiny audio helpers */
-function isAudioSupported() {
-  return (
-    typeof window !== 'undefined' &&
-    ((window as any).AudioContext || (window as any).webkitAudioContext)
-  );
+type AgencyOption = (typeof AGENCY_OPTIONS)[number];
+type PurposeOption = (typeof PURPOSE_OPTIONS)[number];
+
+type WebkitWindow = Window & { webkitAudioContext?: typeof AudioContext };
+
+function getAudioCtor(): typeof AudioContext | null {
+  if (typeof window === "undefined") return null;
+  const w = window as WebkitWindow;
+  return w.AudioContext ?? w.webkitAudioContext ?? null;
 }
+
 function makeCtx(): AudioContext | null {
-  if (!isAudioSupported()) return null;
-  const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
-  return new Ctx();
+  const Ctor = getAudioCtor();
+  if (!Ctor) return null;
+  return new Ctor();
 }
+
 async function beepSuccess() {
   const ctx = makeCtx();
   if (!ctx) return;
+
   const o = ctx.createOscillator();
   const g = ctx.createGain();
-  o.type = 'sine'; o.frequency.value = 880;
-  o.connect(g); g.connect(ctx.destination);
-  const t = ctx.currentTime; g.gain.setValueAtTime(0.0001, t);
+  o.type = "sine";
+  o.frequency.value = 880;
+  o.connect(g);
+  g.connect(ctx.destination);
+
+  const t = ctx.currentTime;
+  g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(0.45, t + 0.01);
-  o.start(); o.stop(t + 0.18);
+  o.start();
+  o.stop(t + 0.18);
 }
+
 async function beepError() {
   const ctx = makeCtx();
   if (!ctx) return;
+
   const o = ctx.createOscillator();
   const g = ctx.createGain();
-  o.type = 'square'; o.frequency.value = 220;
-  o.connect(g); g.connect(ctx.destination);
-  const t = ctx.currentTime; g.gain.setValueAtTime(0.0001, t);
+  o.type = "square";
+  o.frequency.value = 220;
+  o.connect(g);
+  g.connect(ctx.destination);
+
+  const t = ctx.currentTime;
+  g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(0.55, t + 0.01);
-  o.start(); o.stop(t + 0.35);
+  o.start();
+  o.stop(t + 0.35);
+}
+
+type JsonObject = Record<string, unknown>;
+function isRecord(v: unknown): v is JsonObject {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function getString(v: unknown): string | null {
+  return typeof v === "string" ? v : null;
 }
 
 export default function VisitorCheckinPage() {
   const router = useRouter();
 
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName]   = useState('');
-  const [mobile, setMobile]       = useState('');
-  const [agencySel, setAgencySel] = useState<(typeof AGENCY_OPTIONS)[number] | ''>('');
-  const [agencyOther, setAgencyOther] = useState('');
-  const [purposeSel, setPurposeSel] = useState<(typeof PURPOSE_OPTIONS)[number] | ''>('');
-  const [purposeOther, setPurposeOther] = useState('');
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [agencySel, setAgencySel] = useState<AgencyOption | "">("");
+  const [agencyOther, setAgencyOther] = useState("");
+  const [purposeSel, setPurposeSel] = useState<PurposeOption | "">("");
+  const [purposeOther, setPurposeOther] = useState("");
 
-  const [err, setErr]   = useState<string>('');
+  const [err, setErr] = useState<string>("");
   const [busy, setBusy] = useState(false);
 
   const firstInputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => { firstInputRef.current?.focus(); }, []);
+  useEffect(() => {
+    firstInputRef.current?.focus();
+  }, []);
 
-  const finalAgency = agencySel === 'Other' ? agencyOther.trim() : (agencySel || '').trim();
-  const finalPurpose = purposeSel === 'Other' ? purposeOther.trim() : (purposeSel || '').trim();
+  const finalAgency = agencySel === "Other" ? agencyOther.trim() : (agencySel || "").trim();
+  const finalPurpose = purposeSel === "Other" ? purposeOther.trim() : (purposeSel || "").trim();
 
   function validate(): string | null {
-    if (!firstName.trim()) return 'Please enter a first name.';
-    if (!lastName.trim())  return 'Please enter a last name.';
-    if (!mobile.trim())    return 'Please enter a mobile number.';
-    if (!finalPurpose)     return 'Please select or enter a purpose.';
+    if (!firstName.trim()) return "Please enter a first name.";
+    if (!lastName.trim()) return "Please enter a last name.";
+    if (!mobile.trim()) return "Please enter a mobile number.";
+    if (!finalPurpose) return "Please select or enter a purpose.";
     return null;
   }
 
   async function submit() {
-    setErr('');
+    setErr("");
     const v = validate();
     if (v) {
       setErr(v);
@@ -89,9 +123,9 @@ export default function VisitorCheckinPage() {
 
     setBusy(true);
     try {
-      const res = await fetch('/api/kiosk/visitor/checkin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/kiosk/visitor/checkin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           firstName: firstName.trim(),
           lastName: lastName.trim(),
@@ -101,28 +135,29 @@ export default function VisitorCheckinPage() {
         }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const raw: unknown = await res.json().catch(() => ({}));
+      const error = isRecord(raw) ? getString(raw.error) : null;
 
       if (!res.ok) {
-        if (data?.error === 'mobile_belongs_to_member') {
-          setErr('This mobile number belongs to a registered member. Please check in using the keypad.');
+        if (error === "mobile_belongs_to_member") {
+          setErr("This mobile number belongs to a registered member. Please check in using the keypad.");
           await beepError();
           return;
         }
-        if (data?.error === 'missing_fields') {
-          setErr('Please complete all required fields.');
+        if (error === "missing_fields") {
+          setErr("Please complete all required fields.");
           await beepError();
           return;
         }
-        setErr('Could not check in visitor. Please try again.');
+        setErr("Could not check in visitor. Please try again.");
         await beepError();
         return;
       }
 
       await beepSuccess();
-      router.push('/kiosk');
+      router.push("/kiosk");
     } catch {
-      setErr('Network error. Please try again.');
+      setErr("Network error. Please try again.");
       await beepError();
     } finally {
       setBusy(false);
@@ -135,7 +170,6 @@ export default function VisitorCheckinPage() {
         <h1 className="text-3xl font-semibold mb-2">Visitor check-in</h1>
         <p className="text-gray-600 mb-6">Please enter your details.</p>
 
-        {/* Name + Mobile */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm text-gray-600 mb-1">First name</label>
@@ -168,7 +202,6 @@ export default function VisitorCheckinPage() {
           </div>
         </div>
 
-        {/* Agency / Organisation */}
         <div className="mt-6">
           <label className="block text-sm text-gray-600 mb-1">Agency / Organisation</label>
           <div className="flex flex-wrap gap-2">
@@ -178,14 +211,14 @@ export default function VisitorCheckinPage() {
                 type="button"
                 onClick={() => setAgencySel(opt)}
                 className={`px-4 py-2 rounded-xl ring-1 shadow ${
-                  agencySel === opt ? 'ring-blue-500' : 'ring-gray-300'
+                  agencySel === opt ? "ring-blue-500" : "ring-gray-300"
                 }`}
               >
                 {opt}
               </button>
             ))}
           </div>
-          {agencySel === 'Other' && (
+          {agencySel === "Other" && (
             <input
               value={agencyOther}
               onChange={(e) => setAgencyOther(e.target.value)}
@@ -195,7 +228,6 @@ export default function VisitorCheckinPage() {
           )}
         </div>
 
-        {/* Purpose */}
         <div className="mt-6">
           <label className="block text-sm text-gray-600 mb-1">Purpose of visit</label>
           <div className="flex flex-wrap gap-2">
@@ -205,14 +237,14 @@ export default function VisitorCheckinPage() {
                 type="button"
                 onClick={() => setPurposeSel(opt)}
                 className={`px-4 py-2 rounded-xl ring-1 shadow ${
-                  purposeSel === opt ? 'ring-blue-500' : 'ring-gray-300'
+                  purposeSel === opt ? "ring-blue-500" : "ring-gray-300"
                 }`}
               >
                 {opt}
               </button>
             ))}
           </div>
-          {purposeSel === 'Other' && (
+          {purposeSel === "Other" && (
             <input
               value={purposeOther}
               onChange={(e) => setPurposeOther(e.target.value)}
@@ -233,9 +265,9 @@ export default function VisitorCheckinPage() {
             onClick={submit}
             disabled={busy}
             className="px-6 py-3 rounded-2xl shadow text-white disabled:opacity-60"
-            style={{ backgroundColor: '#5093eb' }}
+            style={{ backgroundColor: "#5093eb" }}
           >
-            {busy ? 'Checking in…' : 'Confirm visitor check-in'}
+            {busy ? "Checking in…" : "Confirm visitor check-in"}
           </button>
         </div>
       </div>
