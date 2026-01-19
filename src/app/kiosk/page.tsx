@@ -28,53 +28,30 @@ import { useRouter } from "next/navigation";
 // -----------------------------
 let audioCtx: AudioContext | null = null;
 
-type AudioContextCtor = typeof AudioContext;
-type WindowWithWebkitAudio = Window & { webkitAudioContext?: AudioContextCtor };
+type AudioContextCtor = new () => AudioContext;
 
-function ensureAudio() {
+function getAudioCtor(): AudioContextCtor | null {
   if (typeof window === "undefined") return null;
 
+  const g = globalThis as unknown as {
+    AudioContext?: AudioContextCtor;
+    webkitAudioContext?: AudioContextCtor;
+  };
+
+  return g.AudioContext ?? g.webkitAudioContext ?? null;
+}
+
+function ensureAudio() {
+  const Ctor = getAudioCtor();
+  if (!Ctor) return null;
+
   if (!audioCtx) {
-    const w = window as WindowWithWebkitAudio;
-
-    // Safari uses webkitAudioContext
-    const Ctor: AudioContextCtor | undefined = w.AudioContext ?? w.webkitAudioContext;
-    if (!Ctor) return null;
-
     audioCtx = new Ctor();
   }
 
   return audioCtx;
 }
 
-async function tone(freq: number, ms: number, type: OscillatorType = "sine", gain = 0.05) {
-  const ctx = ensureAudio();
-  if (!ctx) return;
-  const osc = ctx.createOscillator();
-  const g = ctx.createGain();
-  osc.type = type;
-  osc.frequency.value = freq;
-  g.gain.value = gain;
-  osc.connect(g);
-  g.connect(ctx.destination);
-  osc.start();
-  await new Promise((r) => setTimeout(r, ms));
-  osc.stop();
-}
-
-async function beepPositive() {
-  await tone(880, 90, "sine", 0.08);
-  await tone(1320, 120, "sine", 0.08);
-}
-async function beepNegative() {
-  await tone(220, 160, "sawtooth", 0.09);
-  await tone(160, 140, "sawtooth", 0.09);
-}
-async function beepDouble() {
-  await tone(1040, 90, "triangle", 0.08);
-  await new Promise((r) => setTimeout(r, 90));
-  await tone(1040, 90, "triangle", 0.08);
-}
 
 // -----------------------------
 // [LANDMARK: types]
