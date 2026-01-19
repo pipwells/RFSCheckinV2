@@ -66,12 +66,18 @@ function timeDisplayFromDigits(raw: string) {
   return `${p.slice(0, 2)}:${p.slice(2)}`;
 }
 
-// Audio helpers (typed, no any)
-type WebkitWindow = Window & { webkitAudioContext?: typeof AudioContext };
+// Audio helpers (typed, Safari-safe, no Window casts)
+type AudioContextCtor = new () => AudioContext;
 
-function getAudioCtor(): typeof AudioContext | null {
-  const w = window as WebkitWindow;
-  return w.AudioContext ?? w.webkitAudioContext ?? null;
+function getAudioCtor(): AudioContextCtor | null {
+  if (typeof window === "undefined") return null;
+
+  const g = globalThis as unknown as {
+    AudioContext?: AudioContextCtor;
+    webkitAudioContext?: AudioContextCtor;
+  };
+
+  return g.AudioContext ?? g.webkitAudioContext ?? null;
 }
 
 function beepShortSuccess() {
@@ -96,7 +102,9 @@ function beepShortSuccess() {
   }
 }
 
-function parseSessionResponse(raw: unknown): Partial<SessionApiResponse> & { error?: string } {
+function parseSessionResponse(
+  raw: unknown
+): Partial<SessionApiResponse> & { error?: string } {
   if (!isRecord(raw)) return {};
 
   const out: Partial<SessionApiResponse> & { error?: string } = {};
@@ -116,8 +124,10 @@ function parseSessionResponse(raw: unknown): Partial<SessionApiResponse> & { err
   const endTime = raw.endTime === null ? null : getString(raw.endTime);
   if (endTime !== null || raw.endTime === null) out.endTime = endTime;
 
-  const visitorPurpose = raw.visitorPurpose === null ? null : getString(raw.visitorPurpose);
-  if (visitorPurpose !== null || raw.visitorPurpose === null) out.visitorPurpose = visitorPurpose;
+  const visitorPurpose =
+    raw.visitorPurpose === null ? null : getString(raw.visitorPurpose);
+  if (visitorPurpose !== null || raw.visitorPurpose === null)
+    out.visitorPurpose = visitorPurpose;
 
   return out;
 }
@@ -196,7 +206,14 @@ export default function VisitorCheckoutPage() {
     const hh = parseInt(p.slice(0, 2), 10);
     const mm = parseInt(p.slice(2), 10);
 
-    if (Number.isNaN(hh) || Number.isNaN(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+    if (
+      Number.isNaN(hh) ||
+      Number.isNaN(mm) ||
+      hh < 0 ||
+      hh > 23 ||
+      mm < 0 ||
+      mm > 59
+    ) {
       setTimeError("Enter a valid 24-hour time (HHmm).");
       return;
     }
@@ -337,7 +354,8 @@ export default function VisitorCheckoutPage() {
   }
 
   const fullName = `${firstName}${lastName ? " " + lastName : ""}`;
-  const dur = startTime && endTime ? durationString(endTime.getTime() - startTime.getTime()) : "—";
+  const dur =
+    startTime && endTime ? durationString(endTime.getTime() - startTime.getTime()) : "—";
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
